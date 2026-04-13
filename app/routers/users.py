@@ -21,7 +21,7 @@ async def get_users(
     """
     Obtener lista de usuarios. Solo administradores.
     """
-    users = db.query(User).offset(skip).limit(limit).all()
+    users = db.query(User).order_by(User.id).offset(skip).limit(limit).all()
     return [UserResponse.model_validate(u) for u in users]
 
 

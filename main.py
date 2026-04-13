@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 
 from app.config import get_settings
 from app.database import engine, Base
-from app.routers import guias_router, retenciones_router, ventas_router, dashboard_router, auth_router, users_router
+from app.routers import guias_router, retenciones_router, ventas_router, dashboard_router, auth_router, users_router, tokens_router, external_router
 
 settings = get_settings()
 
@@ -40,6 +40,10 @@ app = FastAPI(
     
     Este sistema se integra con la API de NubeFact para el envío de documentos
     electrónicos a SUNAT.
+    
+    ## API Externa
+    
+    Sistema externos (ERP) pueden notificar nuevos documentos mediante tokens de API.
     """,
     lifespan=lifespan,
 )
@@ -60,6 +64,8 @@ app.include_router(ventas_router, prefix="/api")
 app.include_router(dashboard_router, prefix="/api")
 app.include_router(auth_router, prefix="/api")
 app.include_router(users_router, prefix="/api")
+app.include_router(tokens_router, prefix="/api")
+app.include_router(external_router)  # Sin prefijo /api, usa /external
 
 
 @app.get("/", tags=["Root"])
