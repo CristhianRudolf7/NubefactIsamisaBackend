@@ -2,11 +2,12 @@ from sqlalchemy import Column, String, Float, Integer, Text
 from ..database import Base
 
 
-class ARFENube(Base):
-    """Modelo para respuestas de NubeFact - Facturación Electrónica"""
-    __tablename__ = "ar_fe_nube"
+class WHTransactionNube(Base):
+    """Modelo para respuestas de NubeFact - Guías de Remisión"""
+    __tablename__ = "wh_transaction_nube"
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    TransactionId = Column(String(50), index=True)
     serie = Column(String(10))
     numero = Column(String(20))
     enlace = Column(String(500))

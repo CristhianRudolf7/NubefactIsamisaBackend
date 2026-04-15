@@ -157,3 +157,48 @@ async def require_authenticated(
 ) -> User:
     """Dependencia que requiere usuario autenticado"""
     return current_user
+
+
+# Dependencia para requerir acceso a ventas
+async def require_ventas_access(
+    current_user: Annotated[User, Depends(get_current_user_dep)]
+) -> User:
+    """Dependencia que requiere acceso al módulo de ventas"""
+    if current_user.rol == UserRole.ADMIN:
+        return current_user
+    if not current_user.puede_acceder_ventas:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tienes acceso al módulo de ventas"
+        )
+    return current_user
+
+
+# Dependencia para requerir acceso a guías
+async def require_guias_access(
+    current_user: Annotated[User, Depends(get_current_user_dep)]
+) -> User:
+    """Dependencia que requiere acceso al módulo de guías"""
+    if current_user.rol == UserRole.ADMIN:
+        return current_user
+    if not current_user.puede_acceder_guias:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tienes acceso al módulo de guías"
+        )
+    return current_user
+
+
+# Dependencia para requerir acceso a retenciones
+async def require_retenciones_access(
+    current_user: Annotated[User, Depends(get_current_user_dep)]
+) -> User:
+    """Dependencia que requiere acceso al módulo de retenciones"""
+    if current_user.rol == UserRole.ADMIN:
+        return current_user
+    if not current_user.puede_acceder_retenciones:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tienes acceso al módulo de retenciones"
+        )
+    return current_user

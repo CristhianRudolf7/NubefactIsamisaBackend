@@ -66,7 +66,10 @@ async def create_user(
         nombre=user_data.nombre,
         password_hash=hash_password(user_data.password),
         rol=user_data.rol,
-        is_active=True
+        is_active=True,
+        puede_acceder_ventas=user_data.puede_acceder_ventas,
+        puede_acceder_guias=user_data.puede_acceder_guias,
+        puede_acceder_retenciones=user_data.puede_acceder_retenciones
     )
     
     db.add(new_user)

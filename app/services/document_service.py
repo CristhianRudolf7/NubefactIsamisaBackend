@@ -1,12 +1,13 @@
 from sqlalchemy.orm import Session
 from typing import List, Optional, Dict, Any
-from datetime import datetime
+from datetime import datetime, timedelta
 import math
 
 from ..models.guias import WHTransaction, WHTransactionDetail
 from ..models.retenciones import APRetencion, APRetencionDetail, APRetencionStatus
 from ..models.ventas import ARDocument, ARDocumentDetail
 from ..models.nube_response import ARFENube
+from ..models.guia_response import WHTransactionNube
 from ..schemas.common import EstadoDocumento, AuditoriaBase
 from ..schemas.nubefact import (
     NubeFactRequest,
@@ -23,6 +24,14 @@ class DocumentService:
     
     def __init__(self, db: Session):
         self.db = db
+    
+    def _get_peru_datetime(self) -> datetime:
+        """Obtiene la fecha/hora actual de Perú (UTC-5)"""
+        from datetime import timezone
+        utc_now = datetime.now(timezone.utc)
+        peru_offset = timedelta(hours=-5)
+        peru_tz = timezone(peru_offset)
+        return utc_now.astimezone(peru_tz).replace(tzinfo=None)
     
     def _fecha_excel_to_date(self, excel_date: float) -> str:
         """Convierte fecha de Excel a formato dd-mm-YYYY"""
@@ -135,11 +144,35 @@ class DocumentService:
         # Actualizar estado
         if response.success:
             guia.envio_nube = "aceptada"
+
+            # Guardar respuesta
+            nube_record = WHTransactionNube(
+                TransactionId=guia.Transaction,
+                serie=guia.DocumentSerie,
+                numero=guia.DocumentNo,
+                enlace=response.enlace,
+                enlace_del_pdf=response.enlace_del_pdf,
+                enlace_del_xml=response.enlace_del_xml,
+                enlace_del_cdr=response.enlace_del_cdr,
+                aceptada_por_sunat="true" if response.aceptada_por_sunat else "false",
+                sunat_description=response.sunat_description,
+                sunat_note=response.sunat_note,
+                sunat_responsecode=response.sunat_responsecode,
+                sunat_soap_error=response.sunat_soap_error,
+                pdf_zip_base64=response.pdf_zip_base64,
+                xml_zip_base64=response.xml_zip_base64,
+                cdr_zip_base64=response.cdr_zip_base64,
+                codigo_hash_qr=response.cadena_para_codigo_qr,
+                codigo_hash=response.codigo_hash,
+                fecha_envio=datetime.now().timestamp(),
+                usuario_envio=usuario,
+            )
+            self.db.add(nube_record)
         else:
             guia.envio_nube = "error"
-        
+
         self.db.commit()
-        
+
         return {
             "success": response.success,
             "message": response.message,
@@ -200,25 +233,27 @@ class DocumentService:
         # Actualizar estado
         if response.success:
             retencion.status = "enviado"
-            
-            # Guardar respuesta
-            status_record = APRetencionStatus(
-                Retencion=retencion.Id,
-                Status="aceptada" if response.aceptada_por_sunat else "rechazada",
-                Pdf=response.enlace_del_pdf,
-                Xml=response.enlace_del_xml,
-                Cdr=response.enlace_del_cdr,
-                Aceptacion=response.enlace,
-                Descripcion=response.sunat_description,
-                Nota=response.sunat_note,
-                ResponseCode=response.sunat_responsecode,
-                Soap=response.sunat_soap_error,
-                XlastUser=usuario,
-                XlastDate=datetime.now().timestamp(),
-            )
-            self.db.add(status_record)
         else:
             retencion.status = "error"
+        
+        # Guardar respuesta (tanto exitosa como con errores)
+        error_str = ", ".join(response.errors) if response.errors else None
+        status_record = APRetencionStatus(
+            Retencion=retencion.Id,
+            Status="aceptada" if response.aceptada_por_sunat else "rechazada" if response.success else "error",
+            Pdf=response.enlace_del_pdf,
+            Xml=response.enlace_del_xml,
+            Cdr=response.enlace_del_cdr,
+            Aceptacion=response.enlace,
+            Descripcion=response.sunat_description,
+            Nota=response.sunat_note,
+            ResponseCode=response.sunat_responsecode,
+            Soap=response.sunat_soap_error,
+            error=error_str,
+            XlastUser=usuario,
+            XlastDate=datetime.now().timestamp(),
+        )
+        self.db.add(status_record)
         
         self.db.commit()
         
@@ -232,19 +267,39 @@ class DocumentService:
     
     async def enviar_documento_venta(self, document_id: str, usuario: str) -> Dict[str, Any]:
         """Envía documento de venta a NubeFact"""
+        peru_now = self._get_peru_datetime()
+        print(f"\n{'='*60}")
+        print(f"ENVIO A NUBEFACT - Documento: {document_id}")
+        print(f"Fecha Perú: {peru_now.strftime('%d-%m-%Y %H:%M:%S')}")
+        print(f"{'='*60}")
+        
         documento = self.db.query(ARDocument).filter(
             ARDocument.Document == document_id
         ).first()
         
         if not documento:
+            print(f"ERROR: Documento no encontrado")
             return {"success": False, "message": "Documento no encontrado"}
         
+        print(f"Documento encontrado:")
+        print(f"  - Serie: {documento.DocumentSerie}")
+        print(f"  - Numero: {documento.DocumentNo}")
+        print(f"  - Tipo: {documento.DocumentType}")
+        print(f"  - Cliente: {documento.VendorName}")
+        print(f"  - RUC: {documento.VendorRUC}")
+        print(f"  - Total: {documento.AmountTotalLo}")
+        print(f"  - Estado fe: {documento.fe}")
+        
         if documento.fe == "enviado":
+            print(f"ERROR: Documento ya fue enviado")
             return {"success": False, "message": "El documento ya fue enviado"}
         
         # Construir items
         items = []
+        print(f"\nDetalles del documento:")
         for det in documento.detalles:
+            print(f"  Linea {det.Line}: {det.ItemCode} - {det.Description}")
+            print(f"    Cantidad: {det.Quantity}, Precio: {det.Price}, Total: {det.Total}")
             items.append(NubeFactItem(
                 unidad_de_medida=self._map_unidad(det.Unit),
                 codigo=det.ItemCode or "",
@@ -267,9 +322,17 @@ class DocumentService:
             "LIMADSASDEBITO": 4,   # Nota de débito
         }
         tipo_comprobante = tipo_doc_map.get(documento.DocumentType, 1)
+        print(f"\nTipo comprobante mapeado: {tipo_comprobante}")
         
         # Mapear tipo de cliente
         tipo_cliente = "6" if len(documento.VendorRUC or "") == 11 else "1"
+        print(f"Tipo cliente: {tipo_cliente}")
+        
+        # Usar fecha de HOY (Perú) para NubeFact - requiere fecha actual
+        fecha_emision_peru = peru_now.strftime("%d-%m-%Y")
+        fecha_doc = self._fecha_excel_to_date(documento.DocumentDate)
+        print(f"Fecha documento DB: {fecha_doc}")
+        print(f"Fecha a enviar (HOY Perú): {fecha_emision_peru}")
         
         # Construir request
         request = NubeFactRequest(
@@ -280,7 +343,7 @@ class DocumentService:
             cliente_numero_de_documento=documento.VendorRUC or "",
             cliente_denominacion=documento.VendorName or "",
             cliente_direccion=documento.VendorAddress or "",
-            fecha_de_emision=self._fecha_excel_to_date(documento.DocumentDate),
+            fecha_de_emision=fecha_emision_peru,  # Usar fecha de HOY
             fecha_de_vencimiento=self._fecha_excel_to_date(documento.DueDate),
             moneda="1" if documento.DocumentCurrency == "LO" else "2",
             tipo_de_cambio=documento.ExchangeRate,
@@ -290,36 +353,66 @@ class DocumentService:
             items=items,
         )
         
+        print(f"\nRequest a NubeFact:")
+        print(f"  - serie: {request.serie}")
+        print(f"  - numero: {request.numero}")
+        print(f"  - fecha_emision: {request.fecha_de_emision}")
+        print(f"  - cliente: {request.cliente_denominacion}")
+        print(f"  - total_gravada: {request.total_gravada}")
+        print(f"  - total_igv: {request.total_igv}")
+        print(f"  - total: {request.total}")
+        print(f"  - items: {len(request.items)}")
+        
         # Enviar a NubeFact
-        response = await nubefact_client.generar_comprobante(request)
+        print(f"\nEnviando a NubeFact...")
+        try:
+            response = await nubefact_client.generar_comprobante(request)
+            print(f"Respuesta recibida:")
+            print(f"  - success: {response.success}")
+            print(f"  - message: {response.message}")
+            if response.errors:
+                print(f"  - errors: {response.errors}")
+            if response.aceptada_por_sunat:
+                print(f"  - aceptada_por_sunat: {response.aceptada_por_sunat}")
+            if response.sunat_description:
+                print(f"  - sunat_description: {response.sunat_description}")
+        except Exception as e:
+            print(f"EXCEPCION al enviar: {type(e).__name__}: {e}")
+            return {"success": False, "message": f"Error al enviar: {str(e)}"}
         
         # Actualizar estado
         if response.success:
             documento.fe = "enviado"
-            
-            # Guardar respuesta
-            nube_record = ARFENube(
-                serie=documento.DocumentSerie,
-                numero=documento.DocumentNo,
-                enlace=response.enlace,
-                aceptada_por_sunat="true" if response.aceptada_por_sunat else "false",
-                sunat_description=response.sunat_description,
-                sunat_note=response.sunat_note,
-                sunat_responsecode=response.sunat_responsecode,
-                sunat_soap_error=response.sunat_soap_error,
-                pdf_zip_base64=response.pdf_zip_base64,
-                xml_zip_base64=response.xml_zip_base64,
-                cdr_zip_base64=response.cdr_zip_base64,
-                codigo_hash_qr=response.cadena_para_codigo_qr,
-                codigo_hash=response.codigo_hash,
-                fecha_envio=datetime.now().timestamp(),
-                usuario_envio=usuario,
-            )
-            self.db.add(nube_record)
         else:
-            documento.fe = "Error"
+            documento.fe = "error"
+        
+        # Guardar respuesta (tanto exitosa como con errores)
+        error_str = ", ".join(response.errors) if response.errors else None
+        nube_record = ARFENube(
+            serie=documento.DocumentSerie,
+            numero=documento.DocumentNo,
+            enlace=response.enlace,
+            enlace_del_pdf=response.enlace_del_pdf,
+            enlace_del_xml=response.enlace_del_xml,
+            enlace_del_cdr=response.enlace_del_cdr,
+            aceptada_por_sunat="true" if response.aceptada_por_sunat else "false",
+            sunat_description=response.sunat_description,
+            sunat_note=response.sunat_note,
+            sunat_responsecode=response.sunat_responsecode,
+            sunat_soap_error=response.sunat_soap_error,
+            pdf_zip_base64=response.pdf_zip_base64,
+            xml_zip_base64=response.xml_zip_base64,
+            cdr_zip_base64=response.cdr_zip_base64,
+            codigo_hash_qr=response.cadena_para_codigo_qr,
+            codigo_hash=response.codigo_hash,
+            error=error_str,
+            fecha_envio=datetime.now().timestamp(),
+            usuario_envio=usuario,
+        )
+        self.db.add(nube_record)
         
         self.db.commit()
+        print(f"{'='*60}\n")
         
         return {
             "success": response.success,

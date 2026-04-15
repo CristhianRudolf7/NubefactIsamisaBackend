@@ -20,5 +20,9 @@ class User(Base):
     password_hash = Column(String(255), nullable=False)
     rol = Column(Enum(UserRole), default=UserRole.TRABAJADOR, nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
+    # Permisos granulares para trabajadores
+    puede_acceder_ventas = Column(Boolean, default=False, nullable=False)
+    puede_acceder_guias = Column(Boolean, default=False, nullable=False)
+    puede_acceder_retenciones = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)

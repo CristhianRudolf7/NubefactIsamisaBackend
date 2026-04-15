@@ -1,15 +1,18 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 from typing import Optional, List, Annotated
 from datetime import datetime
+import base64
 
 from ..database import get_db
 from ..models.guias import WHTransaction, WHTransactionDetail
+from ..models.guia_response import WHTransactionNube
 from ..models.user import User
 from ..schemas.common import ResponseBase
 from ..schemas.guias import GuiaRemisionSchema, GuiaRemisionFilter
 from ..services.document_service import DocumentService
-from .auth import require_authenticated, require_admin
+from .auth import require_guias_access, require_admin
 
 router = APIRouter(prefix="/guias", tags=["Guías de Remisión"])
 
@@ -17,7 +20,7 @@ router = APIRouter(prefix="/guias", tags=["Guías de Remisión"])
 @router.get("/", response_model=ResponseBase)
 async def listar_guias(
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_authenticated)],
+    current_user: Annotated[User, Depends(require_guias_access)],
     fecha_inicio: Optional[str] = Query(None, description="Fecha inicio (dd-mm-YYYY)"),
     fecha_fin: Optional[str] = Query(None, description="Fecha fin (dd-mm-YYYY)"),
     serie: Optional[str] = Query(None, description="Serie del documento"),
@@ -62,6 +65,7 @@ async def listar_guias(
                     "MotivoTraslado": g.MotivoTraslado,
                     "envio_nube": g.envio_nube,
                     "Status": g.Status,
+                    "error_mensaje": g.RejectionReason or g.Comments or "No hay detalles del error disponibles" if g.envio_nube and g.envio_nube.lower() in ['error', 'rechazado'] else None,
                 }
                 for g in guias
             ]
@@ -72,7 +76,7 @@ async def listar_guias(
 @router.get("/{transaction_id}", response_model=ResponseBase)
 async def obtener_guia(
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_authenticated)],
+    current_user: Annotated[User, Depends(require_guias_access)],
     transaction_id: str
 ):
     """Obtiene detalle de una guía de remisión"""
@@ -82,6 +86,11 @@ async def obtener_guia(
     
     if not guia:
         raise HTTPException(status_code=404, detail="Guía no encontrada")
+    
+    # Obtener mensaje de error si existe
+    error_mensaje = None
+    if guia.envio_nube and guia.envio_nube.lower() in ['error', 'rechazado']:
+        error_mensaje = guia.RejectionReason or guia.Comments or "No hay detalles del error disponibles"
     
     return ResponseBase(
         success=True,
@@ -107,6 +116,7 @@ async def obtener_guia(
                 "envio_nube": guia.envio_nube,
                 "Status": guia.Status,
                 "Comments": guia.Comments,
+                "error_mensaje": error_mensaje,
             },
             "detalles": [
                 {
@@ -189,3 +199,111 @@ async def actualizar_guia(
         message="Guía actualizada correctamente",
         data={"Transaction": guia.Transaction}
     )
+
+
+@router.get("/{transaction_id}/pdf")
+async def descargar_pdf_guia(
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_guias_access)],
+    transaction_id: str
+):
+    """Descarga el PDF de la guía de remisión"""
+    guia = db.query(WHTransaction).filter(WHTransaction.Transaction == transaction_id).first()
+    if not guia:
+        raise HTTPException(status_code=404, detail="Guía no encontrada")
+
+    nube_response = db.query(WHTransactionNube).filter(
+        WHTransactionNube.TransactionId == transaction_id
+    ).order_by(WHTransactionNube.id.desc()).first()
+
+    if not nube_response:
+        raise HTTPException(status_code=404, detail="Guía no enviada a NubeFact")
+
+    # Si hay URL de NubeFact, redirigir
+    if nube_response.enlace_del_pdf:
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(url=nube_response.enlace_del_pdf)
+
+    # Si hay base64, decodificar
+    if nube_response.pdf_zip_base64:
+        pdf_bytes = base64.b64decode(nube_response.pdf_zip_base64)
+        filename = f"{guia.DocumentSerie}-{guia.DocumentNo}.pdf"
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+        )
+
+    raise HTTPException(status_code=404, detail="PDF no disponible")
+
+
+@router.get("/{transaction_id}/xml")
+async def descargar_xml_guia(
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_guias_access)],
+    transaction_id: str
+):
+    """Descarga el XML de la guía de remisión"""
+    guia = db.query(WHTransaction).filter(WHTransaction.Transaction == transaction_id).first()
+    if not guia:
+        raise HTTPException(status_code=404, detail="Guía no encontrada")
+
+    nube_response = db.query(WHTransactionNube).filter(
+        WHTransactionNube.TransactionId == transaction_id
+    ).order_by(WHTransactionNube.id.desc()).first()
+
+    if not nube_response:
+        raise HTTPException(status_code=404, detail="Guía no enviada a NubeFact")
+
+    # Si hay URL de NubeFact, redirigir
+    if nube_response.enlace_del_xml:
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(url=nube_response.enlace_del_xml)
+
+    # Si hay base64, decodificar
+    if nube_response.xml_zip_base64:
+        xml_bytes = base64.b64decode(nube_response.xml_zip_base64)
+        filename = f"{guia.DocumentSerie}-{guia.DocumentNo}.xml"
+        return Response(
+            content=xml_bytes,
+            media_type="application/xml",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+        )
+
+    raise HTTPException(status_code=404, detail="XML no disponible")
+
+
+@router.get("/{transaction_id}/cdr")
+async def descargar_cdr_guia(
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_guias_access)],
+    transaction_id: str
+):
+    """Descarga el CDR de la guía de remisión"""
+    guia = db.query(WHTransaction).filter(WHTransaction.Transaction == transaction_id).first()
+    if not guia:
+        raise HTTPException(status_code=404, detail="Guía no encontrada")
+
+    nube_response = db.query(WHTransactionNube).filter(
+        WHTransactionNube.TransactionId == transaction_id
+    ).order_by(WHTransactionNube.id.desc()).first()
+
+    if not nube_response:
+        raise HTTPException(status_code=404, detail="Guía no enviada a NubeFact")
+
+    # Si hay URL de NubeFact, redirigir
+    if nube_response.enlace_del_cdr:
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(url=nube_response.enlace_del_cdr)
+
+    # Si hay base64, decodificar
+    if nube_response.cdr_zip_base64:
+        cdr_bytes = base64.b64decode(nube_response.cdr_zip_base64)
+        filename = f"R-{guia.DocumentSerie}-{guia.DocumentNo}.zip"
+        return Response(
+            content=cdr_bytes,
+            media_type="application/zip",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+        )
+
+    raise HTTPException(status_code=404, detail="CDR no disponible")

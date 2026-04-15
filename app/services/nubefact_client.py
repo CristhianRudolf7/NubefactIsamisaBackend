@@ -27,6 +27,10 @@ class NubeFactClient:
     
     async def _send_request(self, data: Dict[str, Any]) -> NubeFactResponse:
         """Envía solicitud a NubeFact"""
+        print(f"\n--- NUBEFACT CLIENT ---")
+        print(f"URL: {self.base_url}")
+        print(f"Data enviada: {data}")
+        
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             try:
                 response = await client.post(
@@ -34,22 +38,27 @@ class NubeFactClient:
                     headers=self.headers,
                     json=data
                 )
+                print(f"Status code: {response.status_code}")
+                print(f"Response raw: {response.text[:500] if len(response.text) > 500 else response.text}")
+                
                 response_data = response.json()
                 
                 # Procesar respuesta
                 if "errors" in response_data:
+                    print(f"ERRORES de NubeFact: {response_data['errors']}")
                     return NubeFactResponse(
                         success=False,
                         message="Error en NubeFact",
                         errors=response_data["errors"] if isinstance(response_data["errors"], list) else [response_data["errors"]]
                     )
                 
+                print(f"Respuesta exitosa de NubeFact")
                 return NubeFactResponse(
                     success=True,
                     message="Comprobante procesado correctamente",
                     tipo_de_comprobante=response_data.get("tipo_de_comprobante"),
-                    serie=response_data.get("serie"),
-                    numero=response_data.get("numero"),
+                    serie=str(response_data.get("serie", "")),
+                    numero=str(response_data.get("numero", "")),
                     enlace=response_data.get("enlace"),
                     enlace_del_pdf=response_data.get("enlace_del_pdf"),
                     enlace_del_xml=response_data.get("enlace_del_xml"),
@@ -57,7 +66,7 @@ class NubeFactClient:
                     aceptada_por_sunat=response_data.get("aceptada_por_sunat"),
                     sunat_description=response_data.get("sunat_description"),
                     sunat_note=response_data.get("sunat_note"),
-                    sunat_responsecode=response_data.get("sunat_responsecode"),
+                    sunat_responsecode=str(response_data.get("sunat_responsecode", "")) if response_data.get("sunat_responsecode") else None,
                     sunat_soap_error=response_data.get("sunat_soap_error"),
                     pdf_zip_base64=response_data.get("pdf_zip_base64"),
                     xml_zip_base64=response_data.get("xml_zip_base64"),
@@ -65,13 +74,15 @@ class NubeFactClient:
                     cadena_para_codigo_qr=response_data.get("cadena_para_codigo_qr"),
                     codigo_hash=response_data.get("codigo_hash"),
                 )
-            except httpx.TimeoutException:
+            except httpx.TimeoutException as e:
+                print(f"TIMEOUT: {e}")
                 return NubeFactResponse(
                     success=False,
                     message="Timeout al conectar con NubeFact",
                     errors=["La solicitud tardó demasiado tiempo"]
                 )
             except Exception as e:
+                print(f"EXCEPCION en _send_request: {type(e).__name__}: {e}")
                 return NubeFactResponse(
                     success=False,
                     message="Error al conectar con NubeFact",

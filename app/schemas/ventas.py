@@ -107,6 +107,34 @@ class DocumentoVentaFilter(BaseModel):
     tipo_documento: Optional[str] = None
 
 
+class DocumentoVentaItemUpdate(BaseModel):
+    """Item de detalle para actualización"""
+    Line: Optional[int] = None  # Si es None, es nuevo item
+    ItemCode: str
+    Description: str
+    Unit: str = "NIU"
+    Quantity: float
+    Price: float  # Valor unitario sin IGV
+    PriceTax: float  # Precio con IGV
+    SubTotal: float
+    TotalTaxLo: float  # IGV del item
+    Total: float  # Total con IGV
+
+
+class DocumentoVentaUpdate(BaseModel):
+    """Schema para actualizar documento de venta con items"""
+    VendorRUC: Optional[str] = None
+    VendorName: Optional[str] = None
+    VendorAddress: Optional[str] = None
+    VendorEmail: Optional[str] = None
+    AmountNetLo: Optional[float] = None
+    AmountTaxLo: Optional[float] = None
+    AmountTotalLo: Optional[float] = None
+    AmountNoImponibleLo: Optional[float] = None
+    Comments: Optional[str] = None
+    detalles: Optional[List[DocumentoVentaItemUpdate]] = None
+
+
 class DocumentoVentaNubeFact(BaseModel):
     """Schema para enviar documento de venta a NubeFact"""
     operacion: str = "generar_comprobante"

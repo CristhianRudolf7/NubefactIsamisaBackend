@@ -96,14 +96,14 @@ def set_auth_cookies(response: Response, access_token: str, refresh_token: str):
         secure=False,  # Cambiar a True en producción con HTTPS
         samesite="lax",
         max_age=settings.refresh_token_expire_days * 24 * 60 * 60,
-        path="/api/auth/refresh"  # Solo accesible en el endpoint de refresh
+        path="/"  # Accesible en todos los endpoints
     )
 
 
 def clear_auth_cookies(response: Response):
     """Elimina las cookies de autenticación"""
     response.delete_cookie(key="access_token", path="/")
-    response.delete_cookie(key="refresh_token", path="/api/auth/refresh")
+    response.delete_cookie(key="refresh_token", path="/")
 
 
 def get_current_user(request: Request, db: Session) -> User:

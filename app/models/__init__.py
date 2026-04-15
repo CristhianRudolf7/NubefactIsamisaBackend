@@ -3,7 +3,6 @@ from .retenciones import APRetencion, APRetencionDetail, APRetencionStatus
 from .ventas import ARDocument, ARDocumentDetail
 from .nube_response import ARFENube
 from .user import User, UserRole
-from .api_token import ApiToken
 
 __all__ = [
     "WHTransaction",
@@ -16,5 +15,4 @@ __all__ = [
     "ARFENube",
     "User",
     "UserRole",
-    "ApiToken",
 ]
