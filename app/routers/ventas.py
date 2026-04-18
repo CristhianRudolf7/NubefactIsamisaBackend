@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 from typing import Optional, List, Annotated
@@ -13,6 +13,8 @@ from ..models.user import User
 from ..schemas.common import ResponseBase
 from ..schemas.ventas import DocumentoVentaSchema, DocumentoVentaFilter, DocumentoVentaUpdate
 from ..services.document_service import DocumentService
+from ..services.auditoria_service import AuditoriaService
+from ..utils import get_client_ip
 from .auth import require_ventas_access, require_admin
 
 router = APIRouter(prefix="/ventas", tags=["Documentos de Venta"])
@@ -51,9 +53,20 @@ async def listar_documentos(
     offset = (page - 1) * page_size
     documentos = query.order_by(ARDocument.Document.desc()).offset(offset).limit(page_size).all()
     
-    # Obtener errores de NubeFact para documentos con estado error/rechazado
+    # Obtener errores de NubeFact y hash para documentos
     errores_nube = {}
+    hashes_nube = {}
     series_numeros = [(d.DocumentSerie, d.DocumentNo, d.RejectionReason, d.Comments) for d in documentos if d.fe and d.fe.lower() in ['error', 'rechazado']]
+    # Obtener hash para todos los documentos enviados
+    for d in documentos:
+        if d.fe and d.fe.lower() not in ['pendiente', '', None]:
+            nube_resp = db.query(ARFENube).filter(
+                ARFENube.serie == d.DocumentSerie,
+                ARFENube.numero == d.DocumentNo
+            ).order_by(ARFENube.id.desc()).first()
+            if nube_resp and nube_resp.codigo_hash:
+                hashes_nube[(d.DocumentSerie, d.DocumentNo)] = nube_resp.codigo_hash
+    
     if series_numeros:
         for serie, numero, rejection_reason, comments in series_numeros:
             nube_resp = db.query(ARFENube).filter(
@@ -94,6 +107,7 @@ async def listar_documentos(
                     "fe": d.fe,
                     "Status": d.Status,
                     "error_mensaje": errores_nube.get((d.DocumentSerie, d.DocumentNo)),
+                    "codigo_hash": hashes_nube.get((d.DocumentSerie, d.DocumentNo)),
                 }
                 for d in documentos
             ]
@@ -189,14 +203,66 @@ async def obtener_documento(
 
 @router.post("/{document_id}/enviar", response_model=ResponseBase)
 async def enviar_documento(
+    request: Request,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_admin)],
     document_id: str,
     usuario: str = Query(..., description="Usuario que envía")
 ):
     """Envía documento de venta a NubeFact"""
+    # Obtener documento antes de enviar
+    documento = db.query(ARDocument).filter(ARDocument.Document == document_id).first()
+    if not documento:
+        raise HTTPException(status_code=404, detail="Documento no encontrado")
+
+    # Obtener detalles del documento
+    detalles = db.query(ARDocumentDetail).filter(ARDocumentDetail.Document == document_id).all()
+
+    datos_documento = {
+        "cabecera": {
+            "Document": documento.Document,
+            "DocumentSerie": documento.DocumentSerie,
+            "DocumentNo": documento.DocumentNo,
+            "DocumentType": documento.DocumentType,
+            "DocumentDate": documento.DocumentDate,
+            "VendorRUC": documento.VendorRUC,
+            "VendorName": documento.VendorName,
+            "VendorAddress": documento.VendorAddress,
+            "AmountNetLo": documento.AmountNetLo,
+            "AmountTaxLo": documento.AmountTaxLo,
+            "AmountTotalLo": documento.AmountTotalLo,
+            "DocumentCurrency": documento.DocumentCurrency,
+        },
+        "detalles": [
+            {
+                "Line": d.Line,
+                "ItemCode": d.ItemCode,
+                "Description": d.Description,
+                "Unit": d.Unit,
+                "Quantity": d.Quantity,
+                "Price": d.Price,
+                "PriceTax": d.PriceTax,
+                "SubTotal": d.SubTotal,
+                "TotalTaxLo": d.TotalTaxLo,
+                "Total": d.Total,
+            }
+            for d in detalles
+        ]
+    }
+    
     service = DocumentService(db)
     result = await service.enviar_documento_venta(document_id, usuario)
+    
+    # Registrar auditoría
+    auditoria = AuditoriaService(db)
+    auditoria.registrar_envio(
+        tabla="ventas",
+        registro_id=documento.Document,
+        datos_documento=datos_documento,
+        usuario=usuario,
+        respuesta_nubefact=result.get("data"),
+        ip=get_client_ip(request)
+    )
     
     if not result["success"]:
         raise HTTPException(status_code=400, detail=result["message"])
@@ -210,6 +276,7 @@ async def enviar_documento(
 
 @router.put("/{document_id}", response_model=ResponseBase)
 async def actualizar_documento(
+    request: Request,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_admin)],
     document_id: str,
@@ -231,6 +298,17 @@ async def actualizar_documento(
             status_code=400,
             detail="El documento no puede ser editado en su estado actual"
         )
+    
+    # Guardar datos anteriores para auditoría
+    datos_anteriores = {
+        "Document": documento.Document,
+        "VendorRUC": documento.VendorRUC,
+        "VendorName": documento.VendorName,
+        "VendorAddress": documento.VendorAddress,
+        "AmountNetLo": documento.AmountNetLo,
+        "AmountTaxLo": documento.AmountTaxLo,
+        "AmountTotalLo": documento.AmountTotalLo,
+    }
     
     # Actualizar campos de cabecera
     if datos.VendorRUC is not None:
@@ -282,6 +360,26 @@ async def actualizar_documento(
     
     db.commit()
     
+    # Registrar auditoría
+    datos_nuevos = {
+        "Document": documento.Document,
+        "VendorRUC": documento.VendorRUC,
+        "VendorName": documento.VendorName,
+        "VendorAddress": documento.VendorAddress,
+        "AmountNetLo": documento.AmountNetLo,
+        "AmountTaxLo": documento.AmountTaxLo,
+        "AmountTotalLo": documento.AmountTotalLo,
+    }
+    auditoria = AuditoriaService(db)
+    auditoria.registrar_cambio(
+        tabla="ventas",
+        registro_id=documento.Document,
+        datos_anteriores=datos_anteriores,
+        datos_nuevos=datos_nuevos,
+        usuario=usuario,
+        ip=get_client_ip(request)
+    )
+    
     return ResponseBase(
         success=True,
         message="Documento actualizado correctamente",
@@ -291,6 +389,7 @@ async def actualizar_documento(
 
 @router.post("/{document_id}/anular", response_model=ResponseBase)
 async def anular_documento(
+    request: Request,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_admin)],
     document_id: str,
@@ -301,15 +400,41 @@ async def anular_documento(
     documento = db.query(ARDocument).filter(
         ARDocument.Document == document_id
     ).first()
-    
+
     if not documento:
         raise HTTPException(status_code=404, detail="Documento no encontrado")
-    
+
     if documento.fe != "enviado":
         raise HTTPException(
             status_code=400,
             detail="Solo se pueden anular documentos enviados"
         )
+
+    # Obtener detalles del documento
+    detalles = db.query(ARDocumentDetail).filter(ARDocumentDetail.Document == document_id).all()
+
+    # Guardar datos para auditoría
+    datos_documento = {
+        "cabecera": {
+            "Document": documento.Document,
+            "DocumentSerie": documento.DocumentSerie,
+            "DocumentNo": documento.DocumentNo,
+            "DocumentType": documento.DocumentType,
+            "VendorRUC": documento.VendorRUC,
+            "VendorName": documento.VendorName,
+            "AmountTotalLo": documento.AmountTotalLo,
+        },
+        "detalles": [
+            {
+                "Line": d.Line,
+                "ItemCode": d.ItemCode,
+                "Description": d.Description,
+                "Quantity": d.Quantity,
+                "Total": d.Total,
+            }
+            for d in detalles
+        ]
+    }
     
     # Mapear tipo de documento
     tipo_doc_map = {
@@ -332,6 +457,18 @@ async def anular_documento(
         documento.XLastUser = usuario
         documento.XLastDate = datetime.now().timestamp()
         db.commit()
+    
+    # Registrar auditoría
+    auditoria = AuditoriaService(db)
+    auditoria.registrar_anulacion(
+        tabla="ventas",
+        registro_id=documento.Document,
+        datos_anteriores=datos_documento,
+        motivo=motivo,
+        usuario=usuario,
+        respuesta_nubefact=response.model_dump(exclude_none=True),
+        ip=get_client_ip(request)
+    )
     
     return ResponseBase(
         success=response.success,

@@ -1,0 +1,52 @@
+{
+  "operacion": "generar_guia",
+  "tipo_de_comprobante": 99,
+  "serie": "XYZ",
+  "numero": "ABC123",
+  "cliente_tipo_de_documento": "X",
+  "cliente_numero_de_documento": "abcdefghijk",
+  "cliente_denominacion": "Cliente con RUC inválido",
+  "cliente_direccion": "Dirección con caracteres especiales: <script>alert('xss')</script>",
+  "cliente_email": "email-invalido",
+  "fecha_de_emision": "32-13-2026",
+  "observaciones": "Guía con múltiples errores de formato y tipo de datos",
+  "motivo_de_traslado": "00",
+  "peso_bruto_total": "no_es_numero",
+  "peso_bruto_unidad_de_medida": "XXX",
+  "numero_de_bultos": "tampoco_es_numero",
+  "tipo_de_transporte": "99",
+  "fecha_de_inicio_de_traslado": "fecha_invalida",
+  "transportista_documento_tipo": "Z",
+  "transportista_documento_numero": "no_es_ruc",
+  "transportista_denominacion": null,
+  "transportista_placa_numero": "PLACA_MUY_LARGA_QUE_EXCEDE_EL_LIMITE_PERMITIDO_POR_EL_SISTEMA",
+  "conductor_documento_tipo": "9",
+  "conductor_documento_numero": "dni_invalido",
+  "conductor_nombre": null,
+  "conductor_apellidos": null,
+  "conductor_numero_licencia": "licencia_invalida",
+  "punto_de_partida_ubigeo": "ubigeo_invalido",
+  "punto_de_partida_direccion": null,
+  "punto_de_partida_codigo_establecimiento_sunat": "codigo_invalido",
+  "punto_de_llegada_ubigeo": "000000000000000000000000000000000000",
+  "punto_de_llegada_direccion": "",
+  "punto_de_llegada_codigo_establecimiento_sunat": "",
+  "enviar_automaticamente_a_la_sunat": "no_es_boolean",
+  "enviar_automaticamente_al_cliente": "tampoco_es_boolean",
+  "formato_de_pdf": "",
+  "items": [
+    {
+      "unidad_de_medida": "",
+      "codigo": "",
+      "descripcion": "",
+      "cantidad": -999.99
+    },
+    {
+      "unidad_de_medida": "INVALID",
+      "codigo": "CODIGO_CON_CARACTERES_ESPECIALES_@#$%",
+      "descripcion": "",
+      "cantidad": "no_es_cantidad"
+    }
+  ],
+  "documento_relacionado": "no_es_array"
+}

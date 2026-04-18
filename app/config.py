@@ -22,6 +22,13 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 15
     refresh_token_expire_days: int = 7
     
+    # WhatsApp API para notificaciones
+    whatsapp_api_url: str = "https://161.132.110.220/sis/apis/sy_whats.php"
+    whatsapp_timeout: float = 10.0
+    
+    # Portal URL para links en notificaciones
+    portal_url: str = "http://localhost:3000"
+    
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"

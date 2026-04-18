@@ -1,0 +1,58 @@
+{
+  "operacion": "generar_guia",
+  "tipo_de_comprobante": 7,
+  "serie": "T001",
+  "numero": "00000001",
+  "cliente_tipo_de_documento": "6",
+  "cliente_numero_de_documento": "20123456789",
+  "cliente_denominacion": "EMPRESA DEMO S.A.C.",
+  "cliente_direccion": "Av. Industrial 123, Lima",
+  "cliente_email": "",
+  "fecha_de_emision": "15-04-2026",
+  "observaciones": "Guía de remisión de prueba correcta",
+  "motivo_de_traslado": "01",
+  "peso_bruto_total": 150.5,
+  "peso_bruto_unidad_de_medida": "KGM",
+  "numero_de_bultos": 10,
+  "tipo_de_transporte": "01",
+  "fecha_de_inicio_de_traslado": "15-04-2026",
+  "transportista_documento_tipo": "6",
+  "transportista_documento_numero": "20602674488",
+  "transportista_denominacion": "TRANSPORTES RÁPIDOS S.A.C.",
+  "transportista_placa_numero": "ABC-123",
+  "conductor_documento_tipo": "1",
+  "conductor_documento_numero": "12345678",
+  "conductor_nombre": "Juan Carlos",
+  "conductor_apellidos": "Pérez García",
+  "conductor_numero_licencia": "A12345678",
+  "punto_de_partida_ubigeo": "150101",
+  "punto_de_partida_direccion": "Jr. Los Alamos 456, Lima",
+  "punto_de_partida_codigo_establecimiento_sunat": "",
+  "punto_de_llegada_ubigeo": "150115",
+  "punto_de_llegada_direccion": "Av. Los Girasoles 789, San Juan de Lurigancho",
+  "punto_de_llegada_codigo_establecimiento_sunat": "",
+  "enviar_automaticamente_a_la_sunat": true,
+  "enviar_automaticamente_al_cliente": false,
+  "formato_de_pdf": "",
+  "items": [
+    {
+      "unidad_de_medida": "NIU",
+      "codigo": "PROD001",
+      "descripcion": "Producto de prueba A",
+      "cantidad": 5.0
+    },
+    {
+      "unidad_de_medida": "NIU",
+      "codigo": "PROD002",
+      "descripcion": "Producto de prueba B",
+      "cantidad": 3.0
+    }
+  ],
+  "documento_relacionado": [
+    {
+      "tipo": "01",
+      "serie": "F001",
+      "numero": "00000123"
+    }
+  ]
+}

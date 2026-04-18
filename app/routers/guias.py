@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 from typing import Optional, List, Annotated
@@ -12,6 +12,8 @@ from ..models.user import User
 from ..schemas.common import ResponseBase
 from ..schemas.guias import GuiaRemisionSchema, GuiaRemisionFilter
 from ..services.document_service import DocumentService
+from ..services.auditoria_service import AuditoriaService
+from ..utils import get_client_ip
 from .auth import require_guias_access, require_admin
 
 router = APIRouter(prefix="/guias", tags=["Guías de Remisión"])
@@ -134,14 +136,61 @@ async def obtener_guia(
 
 @router.post("/{transaction_id}/enviar", response_model=ResponseBase)
 async def enviar_guia(
+    request: Request,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_admin)],
     transaction_id: str,
     usuario: str = Query(..., description="Usuario que envía")
 ):
     """Envía guía de remisión a NubeFact"""
+    # Obtener guía antes de enviar
+    guia = db.query(WHTransaction).filter(WHTransaction.Transaction == transaction_id).first()
+    if not guia:
+        raise HTTPException(status_code=404, detail="Guía no encontrada")
+
+    # Obtener detalles de la guía
+    detalles = db.query(WHTransactionDetail).filter(WHTransactionDetail.Transaction == transaction_id).all()
+
+    datos_guia = {
+        "cabecera": {
+            "Transaction": guia.Transaction,
+            "DocumentSerie": guia.DocumentSerie,
+            "DocumentNo": guia.DocumentNo,
+            "TransactionDate": guia.TransactionDate,
+            "TargetPersonRUC": guia.TargetPersonRUC,
+            "TargetPersonName": guia.TargetPersonName,
+            "TargetAddress": guia.TargetAddress,
+            "MotivoTraslado": guia.MotivoTraslado,
+            "PesoBruto": guia.PesoBruto,
+            "RucTransportista": guia.RucTransportista,
+            "Transportista": guia.Transportista,
+            "VehicleID": guia.VehicleID,
+        },
+        "detalles": [
+            {
+                "Line": d.Line,
+                "ItemCode": d.ItemCode,
+                "ItemDescription": d.ItemDescription,
+                "Quantity": d.Quantity,
+                "Unit": d.Unit,
+            }
+            for d in detalles
+        ]
+    }
+    
     service = DocumentService(db)
     result = await service.enviar_guia(transaction_id, usuario)
+    
+    # Registrar auditoría
+    auditoria = AuditoriaService(db)
+    auditoria.registrar_envio(
+        tabla="guias",
+        registro_id=guia.Transaction,
+        datos_documento=datos_guia,
+        usuario=usuario,
+        respuesta_nubefact=result.get("data"),
+        ip=get_client_ip(request)
+    )
     
     if not result["success"]:
         raise HTTPException(status_code=400, detail=result["message"])
@@ -153,8 +202,26 @@ async def enviar_guia(
     )
 
 
+@router.post("/{transaction_id}/consultar", response_model=ResponseBase)
+async def consultar_estado_guia(
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_admin)],
+    transaction_id: str
+):
+    """Consulta el estado de la guía en NubeFact/SUNAT"""
+    service = DocumentService(db)
+    result = await service.consultar_guia(transaction_id)
+    
+    return ResponseBase(
+        success=result["success"],
+        message=result["message"],
+        data=result.get("data")
+    )
+
+
 @router.put("/{transaction_id}", response_model=ResponseBase)
 async def actualizar_guia(
+    request: Request,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_admin)],
     transaction_id: str,
@@ -177,6 +244,19 @@ async def actualizar_guia(
             detail="La guía no puede ser editada en su estado actual"
         )
     
+    # Guardar datos anteriores para auditoría
+    datos_anteriores = {
+        "Transaction": guia.Transaction,
+        "TargetPersonRUC": guia.TargetPersonRUC,
+        "TargetPersonName": guia.TargetPersonName,
+        "TargetAddress": guia.TargetAddress,
+        "MotivoTraslado": guia.MotivoTraslado,
+        "PesoBruto": guia.PesoBruto,
+        "RucTransportista": guia.RucTransportista,
+        "Transportista": guia.Transportista,
+        "VehicleID": guia.VehicleID,
+    }
+    
     # Actualizar campos permitidos
     campos_permitidos = [
         "TargetPersonRUC", "TargetPersonName", "TargetAddress",
@@ -194,10 +274,113 @@ async def actualizar_guia(
     
     db.commit()
     
+    # Registrar auditoría
+    datos_nuevos = {
+        "Transaction": guia.Transaction,
+        "TargetPersonRUC": guia.TargetPersonRUC,
+        "TargetPersonName": guia.TargetPersonName,
+        "TargetAddress": guia.TargetAddress,
+        "MotivoTraslado": guia.MotivoTraslado,
+        "PesoBruto": guia.PesoBruto,
+        "RucTransportista": guia.RucTransportista,
+        "Transportista": guia.Transportista,
+        "VehicleID": guia.VehicleID,
+    }
+    auditoria = AuditoriaService(db)
+    auditoria.registrar_cambio(
+        tabla="guias",
+        registro_id=guia.Transaction,
+        datos_anteriores=datos_anteriores,
+        datos_nuevos=datos_nuevos,
+        usuario=usuario,
+        ip=get_client_ip(request)
+    )
+    
     return ResponseBase(
         success=True,
         message="Guía actualizada correctamente",
         data={"Transaction": guia.Transaction}
+    )
+
+
+@router.post("/{transaction_id}/anular", response_model=ResponseBase)
+async def anular_guia(
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_admin)],
+    transaction_id: str,
+    motivo: str = Query(..., description="Motivo de anulación"),
+    usuario: str = Query(..., description="Usuario que anula")
+):
+    """Genera guía de anulación"""
+    guia = db.query(WHTransaction).filter(
+        WHTransaction.Transaction == transaction_id
+    ).first()
+
+    if not guia:
+        raise HTTPException(status_code=404, detail="Guía no encontrada")
+
+    if guia.envio_nube != "enviado":
+        raise HTTPException(
+            status_code=400,
+            detail="Solo se pueden anular guías enviadas"
+        )
+
+    # Obtener detalles de la guía
+    detalles = db.query(WHTransactionDetail).filter(WHTransactionDetail.Transaction == transaction_id).all()
+
+    # Guardar datos para auditoría
+    datos_guia = {
+        "cabecera": {
+            "Transaction": guia.Transaction,
+            "DocumentSerie": guia.DocumentSerie,
+            "DocumentNo": guia.DocumentNo,
+            "TargetPersonRUC": guia.TargetPersonRUC,
+            "TargetPersonName": guia.TargetPersonName,
+            "MotivoTraslado": guia.MotivoTraslado,
+        },
+        "detalles": [
+            {
+                "Line": d.Line,
+                "ItemCode": d.ItemCode,
+                "ItemDescription": d.ItemDescription,
+                "Quantity": d.Quantity,
+            }
+            for d in detalles
+        ]
+    }
+    
+    # Enviar anulación a NubeFact (tipo 9 = guía de remisión)
+    from ..services.nubefact_client import nubefact_client
+    response = await nubefact_client.generar_anulacion(
+        tipo_comprobante=9,  # Guía de remisión
+        serie=guia.DocumentSerie,
+        numero=guia.DocumentNo,
+        motivo=motivo
+    )
+    
+    if response.success:
+        guia.envio_nube = "anulado"
+        guia.XLastUser = usuario
+        guia.XLastDate = datetime.now().timestamp()
+        db.commit()
+    
+    # Registrar auditoría
+    auditoria = AuditoriaService(db)
+    auditoria.registrar_anulacion(
+        tabla="guias",
+        registro_id=guia.Transaction,
+        datos_anteriores=datos_guia,
+        motivo=motivo,
+        usuario=usuario,
+        respuesta_nubefact=response.model_dump(exclude_none=True),
+        ip=get_client_ip(request)
+    )
+    
+    return ResponseBase(
+        success=response.success,
+        message="Anulación procesada" if response.success else "Error en anulación",
+        data=response.model_dump(exclude_none=True)
     )
 
 
@@ -208,6 +391,8 @@ async def descargar_pdf_guia(
     transaction_id: str
 ):
     """Descarga el PDF de la guía de remisión"""
+    import httpx
+    
     guia = db.query(WHTransaction).filter(WHTransaction.Transaction == transaction_id).first()
     if not guia:
         raise HTTPException(status_code=404, detail="Guía no encontrada")
@@ -219,12 +404,7 @@ async def descargar_pdf_guia(
     if not nube_response:
         raise HTTPException(status_code=404, detail="Guía no enviada a NubeFact")
 
-    # Si hay URL de NubeFact, redirigir
-    if nube_response.enlace_del_pdf:
-        from fastapi.responses import RedirectResponse
-        return RedirectResponse(url=nube_response.enlace_del_pdf)
-
-    # Si hay base64, decodificar
+    # Si hay base64, decodificar y devolver
     if nube_response.pdf_zip_base64:
         pdf_bytes = base64.b64decode(nube_response.pdf_zip_base64)
         filename = f"{guia.DocumentSerie}-{guia.DocumentNo}.pdf"
@@ -234,6 +414,61 @@ async def descargar_pdf_guia(
             headers={"Content-Disposition": f'attachment; filename="{filename}"'}
         )
 
+    # Si hay URL de NubeFact, descargar el PDF y devolverlo
+    if nube_response.enlace_del_pdf:
+        try:
+            async with httpx.AsyncClient() as client:
+                pdf_response = await client.get(nube_response.enlace_del_pdf, timeout=30.0)
+                if pdf_response.status_code == 200:
+                    filename = f"{guia.DocumentSerie}-{guia.DocumentNo}.pdf"
+                    return Response(
+                        content=pdf_response.content,
+                        media_type="application/pdf",
+                        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+                    )
+        except Exception as e:
+            print(f"Error descargando PDF de NubeFact: {e}")
+
+    # Si no hay PDF, consultar a NubeFact para ver si ya está disponible
+    from ..services.document_service import DocumentService
+    service = DocumentService(db)
+    result = await service.consultar_guia(transaction_id)
+    
+    # Revisar si ahora hay PDF disponible
+    db.refresh(nube_response)
+    
+    # Intentar descargar de la URL
+    if nube_response.enlace_del_pdf:
+        try:
+            async with httpx.AsyncClient() as client:
+                pdf_response = await client.get(nube_response.enlace_del_pdf, timeout=30.0)
+                if pdf_response.status_code == 200:
+                    filename = f"{guia.DocumentSerie}-{guia.DocumentNo}.pdf"
+                    return Response(
+                        content=pdf_response.content,
+                        media_type="application/pdf",
+                        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+                    )
+        except Exception as e:
+            print(f"Error descargando PDF de NubeFact: {e}")
+    
+    # Intentar con base64
+    if nube_response.pdf_zip_base64:
+        pdf_bytes = base64.b64decode(nube_response.pdf_zip_base64)
+        filename = f"{guia.DocumentSerie}-{guia.DocumentNo}.pdf"
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+        )
+
+    # Mensaje más informativo según el estado
+    if guia.envio_nube == "enviado":
+        raise HTTPException(
+            status_code=404, 
+            detail="SUNAT aún no ha aceptado la guía. Intente nuevamente en unos segundos."
+        )
+    
     raise HTTPException(status_code=404, detail="PDF no disponible")
 
 

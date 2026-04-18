@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.orm import Session
 from typing import Annotated, List
 
@@ -6,6 +6,8 @@ from ..database import get_db
 from ..models.user import User, UserRole
 from ..schemas.user import UserCreate, UserUpdate, UserResponse
 from ..services.auth_service import hash_password
+from ..services.auditoria_service import AuditoriaService
+from ..utils import get_client_ip
 from .auth import require_admin, get_current_user_dep
 
 router = APIRouter(prefix="/users", tags=["Usuarios"])
@@ -45,6 +47,7 @@ async def get_user(
 
 @router.post("/", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 async def create_user(
+    request: Request,
     user_data: UserCreate,
     current_user: Annotated[User, Depends(require_admin)],
     db: Annotated[Session, Depends(get_db)]
@@ -64,9 +67,11 @@ async def create_user(
     new_user = User(
         dni=user_data.dni,
         nombre=user_data.nombre,
+        celular=user_data.celular,
         password_hash=hash_password(user_data.password),
         rol=user_data.rol,
         is_active=True,
+        recibir_notificaciones=user_data.recibir_notificaciones,
         puede_acceder_ventas=user_data.puede_acceder_ventas,
         puede_acceder_guias=user_data.puede_acceder_guias,
         puede_acceder_retenciones=user_data.puede_acceder_retenciones
@@ -76,11 +81,27 @@ async def create_user(
     db.commit()
     db.refresh(new_user)
     
+    # Registrar auditoría
+    auditoria = AuditoriaService(db)
+    auditoria.registrar_creacion(
+        tabla="usuarios",
+        registro_id=new_user.id,
+        datos_nuevos={
+            "dni": new_user.dni,
+            "nombre": new_user.nombre,
+            "rol": new_user.rol,
+            "is_active": new_user.is_active,
+        },
+        usuario=current_user.nombre,
+        ip=get_client_ip(request)
+    )
+    
     return UserResponse.model_validate(new_user)
 
 
 @router.put("/{user_id}", response_model=UserResponse)
 async def update_user(
+    request: Request,
     user_id: int,
     user_data: UserUpdate,
     current_user: Annotated[User, Depends(require_admin)],
@@ -105,6 +126,17 @@ async def update_user(
                 detail="El DNI ya está registrado"
             )
     
+    # Guardar datos anteriores para auditoría
+    datos_anteriores = {
+        "dni": user.dni,
+        "nombre": user.nombre,
+        "rol": user.rol,
+        "is_active": user.is_active,
+        "puede_acceder_ventas": user.puede_acceder_ventas,
+        "puede_acceder_guias": user.puede_acceder_guias,
+        "puede_acceder_retenciones": user.puede_acceder_retenciones,
+    }
+    
     # Actualizar campos
     update_data = user_data.model_dump(exclude_unset=True)
     
@@ -118,11 +150,32 @@ async def update_user(
     db.commit()
     db.refresh(user)
     
+    # Registrar auditoría
+    datos_nuevos = {
+        "dni": user.dni,
+        "nombre": user.nombre,
+        "rol": user.rol,
+        "is_active": user.is_active,
+        "puede_acceder_ventas": user.puede_acceder_ventas,
+        "puede_acceder_guias": user.puede_acceder_guias,
+        "puede_acceder_retenciones": user.puede_acceder_retenciones,
+    }
+    auditoria = AuditoriaService(db)
+    auditoria.registrar_cambio(
+        tabla="usuarios",
+        registro_id=user.id,
+        datos_anteriores=datos_anteriores,
+        datos_nuevos=datos_nuevos,
+        usuario=current_user.nombre,
+        ip=get_client_ip(request)
+    )
+    
     return UserResponse.model_validate(user)
 
 
 @router.delete("/{user_id}")
 async def delete_user(
+    request: Request,
     user_id: int,
     current_user: Annotated[User, Depends(require_admin)],
     db: Annotated[Session, Depends(get_db)]
@@ -144,7 +197,24 @@ async def delete_user(
             detail="No puedes eliminarte a ti mismo"
         )
     
+    # Guardar datos para auditoría antes de eliminar
+    datos_usuario = {
+        "dni": user.dni,
+        "nombre": user.nombre,
+        "rol": user.rol,
+    }
+    
     db.delete(user)
     db.commit()
+    
+    # Registrar auditoría
+    auditoria = AuditoriaService(db)
+    auditoria.registrar_eliminacion(
+        tabla="usuarios",
+        registro_id=user_id,
+        datos_anteriores=datos_usuario,
+        usuario=current_user.nombre,
+        ip=get_client_ip(request)
+    )
     
     return {"message": "Usuario eliminado exitosamente"}

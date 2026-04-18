@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 from typing import Optional, List, Annotated
@@ -11,6 +11,8 @@ from ..models.user import User
 from ..schemas.common import ResponseBase
 from ..schemas.retenciones import RetencionSchema, RetencionFilter
 from ..services.document_service import DocumentService
+from ..services.auditoria_service import AuditoriaService
+from ..utils import get_client_ip
 from .auth import require_retenciones_access, require_admin
 
 router = APIRouter(prefix="/retenciones", tags=["Retenciones"])
@@ -145,7 +147,12 @@ async def obtener_retencion(
                     "DRmoneda": d.DRmoneda,
                     "DRtotal": d.DRtotal,
                     "DRpagoFecha": d.DRpagoFecha,
+                    "DRpagoNro": d.DRpagoNro,
+                    "DRpagoTotal": d.DRpagoTotal,
+                    "TipoCambio": d.TipoCambio,
+                    "TipoCambioFecha": d.TipoCambioFecha,
                     "Retenido": d.Retenido,
+                    "RetenidoFecha": d.RetenidoFecha,
                     "Pagado": d.Pagado,
                 }
                 for d in retencion.detalles
@@ -163,14 +170,61 @@ async def obtener_retencion(
 
 @router.post("/{retencion_id}/enviar", response_model=ResponseBase)
 async def enviar_retencion(
+    request: Request,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_admin)],
     retencion_id: int,
     usuario: str = Query(..., description="Usuario que envía")
 ):
     """Envía retención a NubeFact"""
+    # Obtener retención antes de enviar
+    retencion = db.query(APRetencion).filter(APRetencion.Id == retencion_id).first()
+    if not retencion:
+        raise HTTPException(status_code=404, detail="Retención no encontrada")
+
+    # Obtener detalles de la retención
+    detalles = db.query(APRetencionDetail).filter(APRetencionDetail.Retencion == retencion_id).all()
+
+    datos_retencion = {
+        "cabecera": {
+            "Id": retencion.Id,
+            "Serie": retencion.Serie,
+            "Numero": retencion.Numero,
+            "DocumentDate": retencion.DocumentDate,
+            "VendorRuc": retencion.VendorRuc,
+            "VendorName": retencion.VendorName,
+            "VendorAddress": retencion.VendorAddress,
+            "Tasa": retencion.Tasa,
+            "TotalRetenido": retencion.TotalRetenido,
+            "TotalPagado": retencion.TotalPagado,
+        },
+        "detalles": [
+            {
+                "Line": d.Line,
+                "DRserie": d.DRserie,
+                "DRnumero": d.DRnumero,
+                "DRfecha": d.DRfecha,
+                "DRtotal": d.DRtotal,
+                "Retenido": d.Retenido,
+                "Pagado": d.Pagado,
+            }
+            for d in detalles
+        ]
+    }
+    
     service = DocumentService(db)
     result = await service.enviar_retencion(retencion_id, usuario)
+    
+    # Registrar auditoría
+    auditoria = AuditoriaService(db)
+    auditoria.registrar_envio(
+        tabla="retenciones",
+        registro_id=retencion.Id,
+        datos_documento=datos_retencion,
+        usuario=usuario,
+        respuesta_nubefact=result.get("data"),
+        ip=get_client_ip(request)
+    )
     
     if not result["success"]:
         raise HTTPException(status_code=400, detail=result["message"])
@@ -184,6 +238,7 @@ async def enviar_retencion(
 
 @router.put("/{retencion_id}", response_model=ResponseBase)
 async def actualizar_retencion(
+    request: Request,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_admin)],
     retencion_id: int,
@@ -206,9 +261,22 @@ async def actualizar_retencion(
             detail="La retención no puede ser editada en su estado actual"
         )
     
+    # Guardar datos anteriores para auditoría
+    datos_anteriores = {
+        "Id": retencion.Id,
+        "Serie": retencion.Serie,
+        "Numero": retencion.Numero,
+        "VendorRuc": retencion.VendorRuc,
+        "VendorName": retencion.VendorName,
+        "VendorAddress": retencion.VendorAddress,
+        "Tasa": retencion.Tasa,
+        "TotalRetenido": retencion.TotalRetenido,
+        "TotalPagado": retencion.TotalPagado,
+    }
+    
     # Actualizar campos permitidos
     campos_permitidos = [
-        "VendorRuc", "VendorName", "VendorAddress",
+        "Serie", "VendorRuc", "VendorName", "VendorAddress",
         "Tasa", "TotalRetenido", "TotalPagado", "Obs", "DocumentDate"
     ]
     
@@ -225,15 +293,155 @@ async def actualizar_retencion(
                     pass  # Si no se puede parsear, dejar el valor original
             setattr(retencion, campo, valor)
     
+    # Actualizar detalles si se proporcionan
+    if "detalles" in datos and isinstance(datos["detalles"], list):
+        for det_data in datos["detalles"]:
+            if "ID" in det_data:
+                detalle = db.query(APRetencionDetail).filter(
+                    APRetencionDetail.ID == det_data["ID"]
+                ).first()
+                if detalle:
+                    # Actualizar campos del detalle
+                    if "DRserie" in det_data:
+                        detalle.DRserie = det_data["DRserie"]
+                    if "DRnumero" in det_data:
+                        detalle.DRnumero = det_data["DRnumero"]
+                    if "DRfecha" in det_data:
+                        detalle.DRfecha = det_data["DRfecha"]
+                    if "DRmoneda" in det_data:
+                        detalle.DRmoneda = det_data["DRmoneda"]
+                    if "DRtotal" in det_data:
+                        detalle.DRtotal = det_data["DRtotal"]
+                    if "DRpagoFecha" in det_data:
+                        detalle.DRpagoFecha = det_data["DRpagoFecha"]
+                    if "DRpagoNro" in det_data:
+                        detalle.DRpagoNro = det_data["DRpagoNro"]
+                    if "DRpagoTotal" in det_data:
+                        detalle.DRpagoTotal = det_data["DRpagoTotal"]
+                    if "TipoCambio" in det_data:
+                        detalle.TipoCambio = det_data["TipoCambio"]
+                    if "TipoCambioFecha" in det_data:
+                        detalle.TipoCambioFecha = det_data["TipoCambioFecha"]
+                    if "Retenido" in det_data:
+                        detalle.Retenido = det_data["Retenido"]
+                    if "RetenidoFecha" in det_data:
+                        detalle.RetenidoFecha = det_data["RetenidoFecha"]
+                    if "Pagado" in det_data:
+                        detalle.Pagado = det_data["Pagado"]
+    
     retencion.XlastUser = usuario
     retencion.XlastDate = datetime.now().timestamp()
     
     db.commit()
     
+    # Registrar auditoría
+    datos_nuevos = {
+        "Id": retencion.Id,
+        "Serie": retencion.Serie,
+        "Numero": retencion.Numero,
+        "VendorRuc": retencion.VendorRuc,
+        "VendorName": retencion.VendorName,
+        "VendorAddress": retencion.VendorAddress,
+        "Tasa": retencion.Tasa,
+        "TotalRetenido": retencion.TotalRetenido,
+        "TotalPagado": retencion.TotalPagado,
+    }
+    auditoria = AuditoriaService(db)
+    auditoria.registrar_cambio(
+        tabla="retenciones",
+        registro_id=retencion.Id,
+        datos_anteriores=datos_anteriores,
+        datos_nuevos=datos_nuevos,
+        usuario=usuario,
+        ip=get_client_ip(request)
+    )
+    
     return ResponseBase(
         success=True,
         message="Retención actualizada correctamente",
         data={"Id": retencion.Id}
+    )
+
+
+@router.post("/{retencion_id}/anular", response_model=ResponseBase)
+async def anular_retencion(
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_admin)],
+    retencion_id: int,
+    motivo: str = Query(..., description="Motivo de anulación"),
+    usuario: str = Query(..., description="Usuario que anula")
+):
+    """Genera retención de anulación"""
+    retencion = db.query(APRetencion).filter(
+        APRetencion.Id == retencion_id
+    ).first()
+
+    if not retencion:
+        raise HTTPException(status_code=404, detail="Retención no encontrada")
+
+    if retencion.status != "enviado":
+        raise HTTPException(
+            status_code=400,
+            detail="Solo se pueden anular retenciones enviadas"
+        )
+
+    # Obtener detalles de la retención
+    detalles = db.query(APRetencionDetail).filter(APRetencionDetail.Retencion == retencion_id).all()
+
+    # Guardar datos para auditoría
+    datos_retencion = {
+        "cabecera": {
+            "Id": retencion.Id,
+            "Serie": retencion.Serie,
+            "Numero": retencion.Numero,
+            "VendorRuc": retencion.VendorRuc,
+            "VendorName": retencion.VendorName,
+            "Tasa": retencion.Tasa,
+            "TotalRetenido": retencion.TotalRetenido,
+        },
+        "detalles": [
+            {
+                "Line": d.Line,
+                "DRserie": d.DRserie,
+                "DRnumero": d.DRnumero,
+                "Retenido": d.Retenido,
+            }
+            for d in detalles
+        ]
+    }
+    
+    # Enviar anulación a NubeFact (tipo 7 = retención)
+    from ..services.nubefact_client import nubefact_client
+    response = await nubefact_client.generar_anulacion(
+        tipo_comprobante=7,  # Retención
+        serie=retencion.Serie,
+        numero=retencion.Numero,
+        motivo=motivo
+    )
+    
+    if response.success:
+        retencion.status = "anulado"
+        retencion.XlastUser = usuario
+        retencion.XlastDate = datetime.now().timestamp()
+        db.commit()
+    
+    # Registrar auditoría
+    auditoria = AuditoriaService(db)
+    auditoria.registrar_anulacion(
+        tabla="retenciones",
+        registro_id=retencion.Id,
+        datos_anteriores=datos_retencion,
+        motivo=motivo,
+        usuario=usuario,
+        respuesta_nubefact=response.model_dump(exclude_none=True),
+        ip=get_client_ip(request)
+    )
+    
+    return ResponseBase(
+        success=response.success,
+        message="Anulación procesada" if response.success else "Error en anulación",
+        data=response.model_dump(exclude_none=True)
     )
 
 

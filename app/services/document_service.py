@@ -9,6 +9,7 @@ from ..models.ventas import ARDocument, ARDocumentDetail
 from ..models.nube_response import ARFENube
 from ..models.guia_response import WHTransactionNube
 from ..schemas.common import EstadoDocumento, AuditoriaBase
+from .notification_service import NotificationService
 from ..schemas.nubefact import (
     NubeFactRequest,
     NubeFactGuiaRequest,
@@ -141,9 +142,33 @@ class DocumentService:
         # Enviar a NubeFact
         response = await nubefact_client.generar_guia(request)
         
+        # Si se envió correctamente, esperar 5 segundos y consultar estado
+        if response.success and not response.aceptada_por_sunat:
+            print("Guía enviada a NubeFact, esperando 5 segundos para consultar estado...")
+            import asyncio
+            await asyncio.sleep(5)
+            
+            # Consultar estado de la guía
+            from ..schemas.nubefact import NubeFactConsultRequest
+            consult_request = NubeFactConsultRequest(
+                tipo_de_comprobante=7,
+                serie=guia.DocumentSerie,
+                numero=guia.DocumentNo
+            )
+            consult_response = await nubefact_client.consultar_guia(consult_request)
+            
+            # Si la consulta fue exitosa, usar esa respuesta
+            if consult_response.success:
+                print(f"Estado consultado: aceptada_por_sunat={consult_response.aceptada_por_sunat}")
+                response = consult_response
+        
         # Actualizar estado
         if response.success:
-            guia.envio_nube = "aceptada"
+            # Para guías, SUNAT puede tardar en aceptar. Solo marcar como aceptada si SUNAT ya respondió
+            if response.aceptada_por_sunat:
+                guia.envio_nube = "aceptada"
+            else:
+                guia.envio_nube = "enviado"  # Enviado a NubeFact, pendiente de aceptación SUNAT
 
             # Guardar respuesta
             nube_record = WHTransactionNube(
@@ -170,12 +195,92 @@ class DocumentService:
             self.db.add(nube_record)
         else:
             guia.envio_nube = "error"
+            # Guardar error para mostrar en el detalle
+            if response.errors:
+                guia.RejectionReason = ", ".join(response.errors)
+            
+            # Notificar error por WhatsApp
+            error_msg = ", ".join(response.errors) if response.errors else response.message
+            notification_service = NotificationService(self.db)
+            await notification_service.notificar_error_documento(
+                tipo_modulo="guias",
+                tipo_documento="guia",
+                serie=guia.DocumentSerie,
+                numero=guia.DocumentNo,
+                error=error_msg,
+                documento_id=guia.Transaction
+            )
 
         self.db.commit()
 
+        # Construir mensaje con errores si existen
+        mensaje = response.message
+        if response.errors:
+            mensaje = response.message + ": " + ", ".join(response.errors)
+
         return {
             "success": response.success,
-            "message": response.message,
+            "message": mensaje,
+            "data": response.model_dump(exclude_none=True)
+        }
+    
+    async def consultar_guia(self, transaction_id: str) -> Dict[str, Any]:
+        """Consulta el estado de una guía en NubeFact/SUNAT"""
+        from ..schemas.nubefact import NubeFactConsultRequest
+        
+        guia = self.db.query(WHTransaction).filter(
+            WHTransaction.Transaction == transaction_id
+        ).first()
+        
+        if not guia:
+            return {"success": False, "message": "Guía no encontrada"}
+        
+        # Consultar a NubeFact
+        consult_request = NubeFactConsultRequest(
+            tipo_de_comprobante=7,
+            serie=guia.DocumentSerie,
+            numero=guia.DocumentNo
+        )
+        
+        response = await nubefact_client.consultar_guia(consult_request)
+        
+        # Si la consulta fue exitosa y SUNAT aceptó, actualizar
+        if response.success and response.aceptada_por_sunat:
+            guia.envio_nube = "aceptada"
+            guia.RejectionReason = None
+            
+            # Actualizar o crear registro de respuesta
+            nube_record = self.db.query(WHTransactionNube).filter(
+                WHTransactionNube.TransactionId == transaction_id
+            ).first()
+            
+            if nube_record:
+                nube_record.aceptada_por_sunat = "true"
+                nube_record.enlace_del_pdf = response.enlace_del_pdf
+                nube_record.enlace_del_xml = response.enlace_del_xml
+                nube_record.enlace_del_cdr = response.enlace_del_cdr
+                nube_record.sunat_description = response.sunat_description
+                nube_record.sunat_note = response.sunat_note
+                nube_record.pdf_zip_base64 = response.pdf_zip_base64
+                nube_record.xml_zip_base64 = response.xml_zip_base64
+                nube_record.cdr_zip_base64 = response.cdr_zip_base64
+            
+            self.db.commit()
+            
+            return {
+                "success": True,
+                "message": "Guía aceptada por SUNAT",
+                "data": response.model_dump(exclude_none=True)
+            }
+        
+        # Si hay errores, devolver el mensaje
+        mensaje = response.message
+        if response.errors:
+            mensaje = response.message + ": " + ", ".join(response.errors)
+        
+        return {
+            "success": response.success,
+            "message": mensaje,
             "data": response.model_dump(exclude_none=True)
         }
     
@@ -256,6 +361,19 @@ class DocumentService:
         self.db.add(status_record)
         
         self.db.commit()
+        
+        # Notificar error por WhatsApp si falló
+        if not response.success:
+            error_msg = ", ".join(response.errors) if response.errors else response.message
+            notification_service = NotificationService(self.db)
+            await notification_service.notificar_error_documento(
+                tipo_modulo="retenciones",
+                tipo_documento="retencion",
+                serie=retencion.Serie,
+                numero=retencion.Numero,
+                error=error_msg,
+                documento_id=str(retencion.Id)
+            )
         
         return {
             "success": response.success,
@@ -413,6 +531,19 @@ class DocumentService:
         
         self.db.commit()
         print(f"{'='*60}\n")
+        
+        # Notificar error por WhatsApp si falló
+        if not response.success:
+            error_msg = ", ".join(response.errors) if response.errors else response.message
+            notification_service = NotificationService(self.db)
+            await notification_service.notificar_error_documento(
+                tipo_modulo="ventas",
+                tipo_documento=documento.DocumentType,
+                serie=documento.DocumentSerie,
+                numero=documento.DocumentNo,
+                error=error_msg,
+                documento_id=documento.Document
+            )
         
         return {
             "success": response.success,

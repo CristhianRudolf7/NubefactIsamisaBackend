@@ -17,9 +17,11 @@ class User(Base):
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     dni = Column(String(8), unique=True, index=True, nullable=False)
     nombre = Column(String(100), nullable=False)
+    celular = Column(String(9), nullable=False)
     password_hash = Column(String(255), nullable=False)
     rol = Column(Enum(UserRole), default=UserRole.TRABAJADOR, nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
+    recibir_notificaciones = Column(Boolean, default=True, nullable=False)
     # Permisos granulares para trabajadores
     puede_acceder_ventas = Column(Boolean, default=False, nullable=False)
     puede_acceder_guias = Column(Boolean, default=False, nullable=False)

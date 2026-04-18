@@ -109,6 +109,12 @@ class NubeFactClient:
         data = request.model_dump()
         return await self._send_request(data)
     
+    async def consultar_guia(self, request: NubeFactConsultRequest) -> NubeFactResponse:
+        """Consulta estado de una guía de remisión"""
+        data = request.model_dump()
+        data["operacion"] = "consultar_guia"  # Operación correcta para guías
+        return await self._send_request(data)
+    
     async def consultar_anulacion(self, request: NubeFactConsultAnulacionRequest) -> NubeFactResponse:
         """Consulta estado de una anulación"""
         data = request.model_dump()
