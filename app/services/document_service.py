@@ -18,21 +18,14 @@ from ..schemas.nubefact import (
     NubeFactRetencionItem,
 )
 from .nubefact_client import nubefact_client
+from ..utils.datetime import now_peru
 
 
 class DocumentService:
     """Servicio para gestión de documentos"""
-    
+
     def __init__(self, db: Session):
         self.db = db
-    
-    def _get_peru_datetime(self) -> datetime:
-        """Obtiene la fecha/hora actual de Perú (UTC-5)"""
-        from datetime import timezone
-        utc_now = datetime.now(timezone.utc)
-        peru_offset = timedelta(hours=-5)
-        peru_tz = timezone(peru_offset)
-        return utc_now.astimezone(peru_tz).replace(tzinfo=None)
     
     def _fecha_excel_to_date(self, excel_date: float) -> str:
         """Convierte fecha de Excel a formato dd-mm-YYYY"""
@@ -189,7 +182,7 @@ class DocumentService:
                 cdr_zip_base64=response.cdr_zip_base64,
                 codigo_hash_qr=response.cadena_para_codigo_qr,
                 codigo_hash=response.codigo_hash,
-                fecha_envio=datetime.now().timestamp(),
+                fecha_envio=now_peru().timestamp(),
                 usuario_envio=usuario,
             )
             self.db.add(nube_record)
@@ -337,7 +330,10 @@ class DocumentService:
         
         # Actualizar estado
         if response.success:
-            retencion.status = "enviado"
+            if response.aceptada_por_sunat:
+                retencion.status = "aceptada"
+            else:
+                retencion.status = "enviado"
         else:
             retencion.status = "error"
         
@@ -356,7 +352,7 @@ class DocumentService:
             Soap=response.sunat_soap_error,
             error=error_str,
             XlastUser=usuario,
-            XlastDate=datetime.now().timestamp(),
+            XlastDate=now_peru().timestamp(),
         )
         self.db.add(status_record)
         
@@ -385,7 +381,7 @@ class DocumentService:
     
     async def enviar_documento_venta(self, document_id: str, usuario: str) -> Dict[str, Any]:
         """Envía documento de venta a NubeFact"""
-        peru_now = self._get_peru_datetime()
+        peru_now = now_peru()
         print(f"\n{'='*60}")
         print(f"ENVIO A NUBEFACT - Documento: {document_id}")
         print(f"Fecha Perú: {peru_now.strftime('%d-%m-%Y %H:%M:%S')}")
@@ -500,7 +496,10 @@ class DocumentService:
         
         # Actualizar estado
         if response.success:
-            documento.fe = "enviado"
+            if response.aceptada_por_sunat:
+                documento.fe = "aceptada"
+            else:
+                documento.fe = "enviado"
         else:
             documento.fe = "error"
         
@@ -524,7 +523,7 @@ class DocumentService:
             codigo_hash_qr=response.cadena_para_codigo_qr,
             codigo_hash=response.codigo_hash,
             error=error_str,
-            fecha_envio=datetime.now().timestamp(),
+            fecha_envio=now_peru().timestamp(),
             usuario_envio=usuario,
         )
         self.db.add(nube_record)

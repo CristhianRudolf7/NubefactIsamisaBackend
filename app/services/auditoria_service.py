@@ -1,11 +1,11 @@
 """
 Servicio para registrar eventos de auditoría
 """
-from datetime import datetime
 from sqlalchemy.orm import Session
 import json
 
 from ..models.auditoria import Auditoria
+from ..utils.datetime import now_peru
 
 
 class AuditoriaService:
@@ -46,7 +46,7 @@ class AuditoriaService:
             datos_anteriores=json.dumps(datos_anteriores, default=str) if datos_anteriores else None,
             datos_nuevos=json.dumps(datos_nuevos, default=str) if datos_nuevos else None,
             usuario=usuario,
-            fecha=datetime.now(),
+            fecha=now_peru(),
             ip=ip
         )
         

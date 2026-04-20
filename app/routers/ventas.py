@@ -2,7 +2,6 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 from typing import Optional, List, Annotated
-from datetime import datetime
 import base64
 
 from ..database import get_db
@@ -15,6 +14,7 @@ from ..schemas.ventas import DocumentoVentaSchema, DocumentoVentaFilter, Documen
 from ..services.document_service import DocumentService
 from ..services.auditoria_service import AuditoriaService
 from ..utils import get_client_ip
+from ..utils.datetime import now_peru
 from .auth import require_ventas_access, require_admin
 
 router = APIRouter(prefix="/ventas", tags=["Documentos de Venta"])
@@ -308,6 +308,18 @@ async def actualizar_documento(
         "AmountNetLo": documento.AmountNetLo,
         "AmountTaxLo": documento.AmountTaxLo,
         "AmountTotalLo": documento.AmountTotalLo,
+        "detalles": [
+            {
+                "Line": d.Line,
+                "ItemCode": d.ItemCode,
+                "Description": d.Description,
+                "Quantity": d.Quantity,
+                "Unit": d.Unit,
+                "Price": d.Price,
+                "Total": d.Total,
+            }
+            for d in documento.detalles
+        ]
     }
     
     # Actualizar campos de cabecera
@@ -356,7 +368,7 @@ async def actualizar_documento(
     
     
     documento.XLastUser = usuario
-    documento.XLastDate = datetime.now().timestamp()
+    documento.XLastDate = now_peru().timestamp()
     
     db.commit()
     
@@ -369,6 +381,18 @@ async def actualizar_documento(
         "AmountNetLo": documento.AmountNetLo,
         "AmountTaxLo": documento.AmountTaxLo,
         "AmountTotalLo": documento.AmountTotalLo,
+        "detalles": [
+            {
+                "Line": d.Line,
+                "ItemCode": d.ItemCode,
+                "Description": d.Description,
+                "Quantity": d.Quantity,
+                "Unit": d.Unit,
+                "Price": d.Price,
+                "Total": d.Total,
+            }
+            for d in documento.detalles
+        ]
     }
     auditoria = AuditoriaService(db)
     auditoria.registrar_cambio(
@@ -455,7 +479,7 @@ async def anular_documento(
     if response.success:
         documento.fe = "anulado"
         documento.XLastUser = usuario
-        documento.XLastDate = datetime.now().timestamp()
+        documento.XLastDate = now_peru().timestamp()
         db.commit()
     
     # Registrar auditoría

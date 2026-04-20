@@ -2,7 +2,6 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 from typing import Optional, List, Annotated
-from datetime import datetime
 import base64
 
 from ..database import get_db
@@ -14,6 +13,7 @@ from ..schemas.guias import GuiaRemisionSchema, GuiaRemisionFilter
 from ..services.document_service import DocumentService
 from ..services.auditoria_service import AuditoriaService
 from ..utils import get_client_ip
+from ..utils.datetime import now_peru
 from .auth import require_guias_access, require_admin
 
 router = APIRouter(prefix="/guias", tags=["Guías de Remisión"])
@@ -255,6 +255,16 @@ async def actualizar_guia(
         "RucTransportista": guia.RucTransportista,
         "Transportista": guia.Transportista,
         "VehicleID": guia.VehicleID,
+        "detalles": [
+            {
+                "Line": d.Line,
+                "ItemCode": d.ItemCode,
+                "ItemDescription": d.ItemDescription,
+                "Quantity": d.Quantity,
+                "Unit": d.Unit,
+            }
+            for d in guia.detalles
+        ]
     }
     
     # Actualizar campos permitidos
@@ -270,7 +280,7 @@ async def actualizar_guia(
             setattr(guia, campo, valor)
     
     guia.XLastUser = usuario
-    guia.XLastDate = datetime.now().timestamp()
+    guia.XLastDate = now_peru().timestamp()
     
     db.commit()
     
@@ -285,6 +295,16 @@ async def actualizar_guia(
         "RucTransportista": guia.RucTransportista,
         "Transportista": guia.Transportista,
         "VehicleID": guia.VehicleID,
+        "detalles": [
+            {
+                "Line": d.Line,
+                "ItemCode": d.ItemCode,
+                "ItemDescription": d.ItemDescription,
+                "Quantity": d.Quantity,
+                "Unit": d.Unit,
+            }
+            for d in guia.detalles
+        ]
     }
     auditoria = AuditoriaService(db)
     auditoria.registrar_cambio(
@@ -362,7 +382,7 @@ async def anular_guia(
     if response.success:
         guia.envio_nube = "anulado"
         guia.XLastUser = usuario
-        guia.XLastDate = datetime.now().timestamp()
+        guia.XLastDate = now_peru().timestamp()
         db.commit()
     
     # Registrar auditoría

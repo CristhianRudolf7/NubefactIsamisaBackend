@@ -2,7 +2,6 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 from typing import Optional, List, Annotated
-from datetime import datetime
 import base64
 
 from ..database import get_db
@@ -13,6 +12,7 @@ from ..schemas.retenciones import RetencionSchema, RetencionFilter
 from ..services.document_service import DocumentService
 from ..services.auditoria_service import AuditoriaService
 from ..utils import get_client_ip
+from ..utils.datetime import now_peru
 from .auth import require_retenciones_access, require_admin
 
 router = APIRouter(prefix="/retenciones", tags=["Retenciones"])
@@ -272,6 +272,17 @@ async def actualizar_retencion(
         "Tasa": retencion.Tasa,
         "TotalRetenido": retencion.TotalRetenido,
         "TotalPagado": retencion.TotalPagado,
+        "detalles": [
+            {
+                "Line": d.Line,
+                "DRserie": d.DRserie,
+                "DRnumero": d.DRnumero,
+                "DRfecha": d.DRfecha,
+                "Retenido": d.Retenido,
+                "Pagado": d.Pagado,
+            }
+            for d in retencion.detalles
+        ]
     }
     
     # Actualizar campos permitidos
@@ -330,7 +341,7 @@ async def actualizar_retencion(
                         detalle.Pagado = det_data["Pagado"]
     
     retencion.XlastUser = usuario
-    retencion.XlastDate = datetime.now().timestamp()
+    retencion.XlastDate = now_peru().timestamp()
     
     db.commit()
     
@@ -345,6 +356,17 @@ async def actualizar_retencion(
         "Tasa": retencion.Tasa,
         "TotalRetenido": retencion.TotalRetenido,
         "TotalPagado": retencion.TotalPagado,
+        "detalles": [
+            {
+                "Line": d.Line,
+                "DRserie": d.DRserie,
+                "DRnumero": d.DRnumero,
+                "DRfecha": d.DRfecha,
+                "Retenido": d.Retenido,
+                "Pagado": d.Pagado,
+            }
+            for d in retencion.detalles
+        ]
     }
     auditoria = AuditoriaService(db)
     auditoria.registrar_cambio(
@@ -423,7 +445,7 @@ async def anular_retencion(
     if response.success:
         retencion.status = "anulado"
         retencion.XlastUser = usuario
-        retencion.XlastDate = datetime.now().timestamp()
+        retencion.XlastDate = now_peru().timestamp()
         db.commit()
     
     # Registrar auditoría
