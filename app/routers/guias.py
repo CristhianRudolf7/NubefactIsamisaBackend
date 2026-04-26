@@ -269,15 +269,30 @@ async def actualizar_guia(
     
     # Actualizar campos permitidos
     campos_permitidos = [
-        "TargetPersonRUC", "TargetPersonName", "TargetAddress",
-        "MotivoTraslado", "PesoBruto", "RucTransportista",
-        "Transportista", "VehicleID", "Driver", "LicenciaConducir",
-        "origenaddress", "ubigeo_des", "Comments"
+        "origenaddress", "ubigeo_des", # Remitente
+        "TargetPersonRUC", "TargetPersonName", "TargetAddress", # Destinatario
+        "RucTransportista", "Transportista", "VehicleID", "LicenciaConducir", # Transportista
+        "SaleDocSerie", "SaleDocNo", # Documento de referencia
+        "MotivoTraslado", "PesoBruto" # Otros
     ]
     
     for campo, valor in datos.items():
         if campo in campos_permitidos and hasattr(guia, campo):
             setattr(guia, campo, valor)
+            
+    # Manejar campos especiales de conductor
+    if "DriverDNI" in datos:
+        guia.DriverId = datos["DriverDNI"]
+    
+    if "DriverNombre" in datos or "DriverApellido" in datos:
+        # Reconstruir Driver como "Apellido Nombre" (asumiendo que el servicio espera este orden)
+        # El servicio actual hace: 
+        # conductor_nombre=guia.Driver.split()[2]
+        # conductor_apellidos=f"{guia.Driver.split()[0]} {guia.Driver.split()[1]}"
+        # Así que esperamos "Apellido1 Apellido2 Nombre"
+        nombre = datos.get("DriverNombre", "")
+        apellido = datos.get("DriverApellido", "")
+        guia.Driver = f"{apellido} {nombre}".strip()
     
     guia.XLastUser = usuario
     guia.XLastDate = now_peru().timestamp()

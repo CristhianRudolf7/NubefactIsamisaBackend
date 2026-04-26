@@ -132,6 +132,7 @@ class DocumentoVentaUpdate(BaseModel):
     AmountTotalLo: Optional[float] = None
     AmountNoImponibleLo: Optional[float] = None
     Comments: Optional[str] = None
+    CondicionPago: Optional[str] = None
     detalles: Optional[List[DocumentoVentaItemUpdate]] = None
 
 

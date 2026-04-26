@@ -285,26 +285,14 @@ async def actualizar_retencion(
         ]
     }
     
-    # Actualizar campos permitidos
-    campos_permitidos = [
-        "Serie", "VendorRuc", "VendorName", "VendorAddress",
-        "Tasa", "TotalRetenido", "TotalPagado", "Obs", "DocumentDate"
-    ]
+    # Actualizar campos permitidos (Monto retenido y Monto Pagado)
+    campos_permitidos = ["TotalRetenido", "TotalPagado"]
     
     for campo, valor in datos.items():
         if campo in campos_permitidos and hasattr(retencion, campo):
-            # Convertir fecha de string DD-MM-YYYY a número de Excel
-            if campo == "DocumentDate" and valor:
-                from datetime import datetime
-                try:
-                    fecha = datetime.strptime(str(valor), "%d-%m-%Y")
-                    # Número de días desde 1899-12-30 (base de Excel)
-                    valor = (fecha - datetime(1899, 12, 30)).days
-                except ValueError:
-                    pass  # Si no se puede parsear, dejar el valor original
             setattr(retencion, campo, valor)
     
-    # Actualizar detalles si se proporcionan
+    # Actualizar detalles si se proporcionan (Monto retenido, Monto Pagado, Nro de pago)
     if "detalles" in datos and isinstance(datos["detalles"], list):
         for det_data in datos["detalles"]:
             if "ID" in det_data:
@@ -312,31 +300,11 @@ async def actualizar_retencion(
                     APRetencionDetail.ID == det_data["ID"]
                 ).first()
                 if detalle:
-                    # Actualizar campos del detalle
-                    if "DRserie" in det_data:
-                        detalle.DRserie = det_data["DRserie"]
-                    if "DRnumero" in det_data:
-                        detalle.DRnumero = det_data["DRnumero"]
-                    if "DRfecha" in det_data:
-                        detalle.DRfecha = det_data["DRfecha"]
-                    if "DRmoneda" in det_data:
-                        detalle.DRmoneda = det_data["DRmoneda"]
-                    if "DRtotal" in det_data:
-                        detalle.DRtotal = det_data["DRtotal"]
-                    if "DRpagoFecha" in det_data:
-                        detalle.DRpagoFecha = det_data["DRpagoFecha"]
+                    # Actualizar campos permitidos del detalle
                     if "DRpagoNro" in det_data:
                         detalle.DRpagoNro = det_data["DRpagoNro"]
-                    if "DRpagoTotal" in det_data:
-                        detalle.DRpagoTotal = det_data["DRpagoTotal"]
-                    if "TipoCambio" in det_data:
-                        detalle.TipoCambio = det_data["TipoCambio"]
-                    if "TipoCambioFecha" in det_data:
-                        detalle.TipoCambioFecha = det_data["TipoCambioFecha"]
                     if "Retenido" in det_data:
                         detalle.Retenido = det_data["Retenido"]
-                    if "RetenidoFecha" in det_data:
-                        detalle.RetenidoFecha = det_data["RetenidoFecha"]
                     if "Pagado" in det_data:
                         detalle.Pagado = det_data["Pagado"]
     

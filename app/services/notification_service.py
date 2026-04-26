@@ -95,8 +95,8 @@ class NotificationService:
             Mensaje formateado para WhatsApp
         """
         settings = get_settings()
-        portal_url = settings.portal_url
-
+        portal_url = settings.portal_url.rstrip("/")
+        
         return f"""Tipo de documento: {tipo_documento}
 Serie-número: {serie}-{numero}
 Error: {error}

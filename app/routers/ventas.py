@@ -166,6 +166,7 @@ async def obtener_documento(
                 "AmountNoImponibleLo": documento.AmountNoImponibleLo,
                 "PlazoDias": documento.PlazoDias,
                 "FlagSaleType": documento.FlagSaleType,
+                "CondicionPago": documento.CondicionPago,
                 "fe": documento.fe,
                 "Status": documento.Status,
                 "error_mensaje": error_mensaje,
@@ -341,6 +342,8 @@ async def actualizar_documento(
         documento.AmountNoImponibleLo = datos.AmountNoImponibleLo
     if datos.Comments is not None:
         documento.Comments = datos.Comments
+    if datos.CondicionPago is not None:
+        documento.CondicionPago = datos.CondicionPago
     
     # Actualizar items si se proporcionan
     if datos.detalles is not None:

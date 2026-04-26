@@ -1,20 +1,21 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, cast, Date, Integer
 from typing import Optional, Annotated
-from datetime import datetime
+from datetime import datetime, timedelta, date
+import logging
 
 from ..database import get_db
 from ..models.guias import WHTransaction
-from ..models.retenciones import APRetencion, APRetencionStatus
+from ..models.retenciones import APRetencion
 from ..models.ventas import ARDocument
-from ..models.nube_response import ARFENube
 from ..models.user import User
 from ..schemas.common import ResponseBase, EstadoDocumento
 from .auth import require_authenticated
 
 router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
 
+logger = logging.getLogger(__name__)
 
 @router.get("/estadisticas", response_model=ResponseBase)
 async def obtener_estadisticas(
@@ -78,6 +79,102 @@ async def obtener_estadisticas(
         }
     )
 
+
+@router.get("/actividad-semanal", response_model=ResponseBase)
+async def actividad_semanal(
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_authenticated)]
+):
+    """Obtiene la cantidad real de documentos procesados en los últimos 7 días"""
+    try:
+        base_excel = date(1899, 12, 30)
+        hoy = date.today()
+        dias = [hoy - timedelta(days=i) for i in range(6, -1, -1)]
+        
+        # Diccionario base para consolidar resultados
+        conteo_por_dia = {d.strftime("%Y-%m-%d"): 0 for d in dias}
+        
+        # Rango en formato Excel (Integer) para consultas eficientes
+        excel_inicio = (dias[0] - base_excel).days
+        excel_fin = (dias[-1] - base_excel).days
+
+        # 1. Ventas
+        try:
+            ventas_raw = db.query(
+                cast(ARDocument.DocumentDate, Integer).label("fecha_excel"),
+                func.count(ARDocument.Document).label("cantidad")
+            ).filter(
+                ARDocument.DocumentDate >= excel_inicio,
+                ARDocument.DocumentDate < (excel_fin + 1)
+            ).group_by(cast(ARDocument.DocumentDate, Integer)).all()
+            
+            for res in ventas_raw:
+                d_obj = base_excel + timedelta(days=res.fecha_excel)
+                ds = d_obj.strftime("%Y-%m-%d")
+                if ds in conteo_por_dia:
+                    conteo_por_dia[ds] += res.cantidad
+        except Exception as e:
+            logger.error(f"Error consultando actividad de ventas: {e}")
+
+        # 2. Guías
+        try:
+            guias_raw = db.query(
+                cast(WHTransaction.TransactionDate, Integer).label("fecha_excel"),
+                func.count(WHTransaction.Transaction).label("cantidad")
+            ).filter(
+                WHTransaction.TransactionDate >= excel_inicio,
+                WHTransaction.TransactionDate < (excel_fin + 1)
+            ).group_by(cast(WHTransaction.TransactionDate, Integer)).all()
+            
+            for res in guias_raw:
+                d_obj = base_excel + timedelta(days=res.fecha_excel)
+                ds = d_obj.strftime("%Y-%m-%d")
+                if ds in conteo_por_dia:
+                    conteo_por_dia[ds] += res.cantidad
+        except Exception as e:
+            logger.error(f"Error consultando actividad de guías: {e}")
+
+        # 3. Retenciones
+        try:
+            # En AP_Retencion el campo es DocumentDate (Float Excel)
+            retenciones_raw = db.query(
+                cast(APRetencion.DocumentDate, Integer).label("fecha_excel"),
+                func.count(APRetencion.Id).label("cantidad")
+            ).filter(
+                APRetencion.DocumentDate >= excel_inicio,
+                APRetencion.DocumentDate < (excel_fin + 1)
+            ).group_by(cast(APRetencion.DocumentDate, Integer)).all()
+            
+            for res in retenciones_raw:
+                d_obj = base_excel + timedelta(days=res.fecha_excel)
+                ds = d_obj.strftime("%Y-%m-%d")
+                if ds in conteo_por_dia:
+                    conteo_por_dia[ds] += res.cantidad
+        except Exception as e:
+            logger.error(f"Error consultando actividad de retenciones: {e}")
+
+        # Formatear para el frontend
+        resultados = []
+        for d in dias:
+            ds = d.strftime("%Y-%m-%d")
+            resultados.append({
+                "fecha": d.strftime("%d/%m"),
+                "cantidad": conteo_por_dia.get(ds, 0)
+            })
+            
+        return ResponseBase(
+            success=True,
+            message="Actividad semanal obtenida",
+            data=resultados
+        )
+    except Exception as e:
+        logger.error(f"Error general en actividad-semanal: {e}")
+        # En caso de error crítico, devolver lista vacía en lugar de romper el server
+        return ResponseBase(
+            success=False,
+            message=f"Error al obtener actividad: {str(e)}",
+            data=[]
+        )
 
 @router.get("/estados", response_model=ResponseBase)
 async def listar_estados(

@@ -121,7 +121,7 @@ class DocumentService:
             transportista_documento_numero=guia.RucTransportista or "",
             transportista_denominacion=guia.Transportista or "",
             transportista_placa_numero=guia.VehicleID or "",
-            conductor_documento_numero=guia.LicenciaConducir[1:] if guia.LicenciaConducir else "",
+            conductor_documento_numero=guia.DriverId if guia.DriverId else (guia.LicenciaConducir[1:] if guia.LicenciaConducir else ""),
             conductor_nombre=guia.Driver.split()[2] if guia.Driver and len(guia.Driver.split()) > 2 else "",
             conductor_apellidos=f"{guia.Driver.split()[0]} {guia.Driver.split()[1]}" if guia.Driver and len(guia.Driver.split()) > 1 else "",
             conductor_numero_licencia=guia.LicenciaConducir or "",
@@ -464,6 +464,7 @@ class DocumentService:
             total_gravada=documento.AmountNetLo or 0,
             total_igv=documento.AmountTaxLo or 0,
             total=documento.AmountTotalLo or 0,
+            condiciones_de_pago=documento.CondicionPago,
             items=items,
         )
         
