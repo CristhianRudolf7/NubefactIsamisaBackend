@@ -4,8 +4,9 @@ from typing import Annotated
 
 from ..database import get_db
 from ..models.user import User, UserRole
-from ..schemas.user import UserLogin, UserResponse
+from ..schemas.user import UserLogin, UserResponse, UserChangePassword
 from ..schemas.auth import CurrentUser
+from ..schemas.common import ResponseBase
 from ..services.auth_service import (
     authenticate_user,
     create_access_token,
@@ -15,9 +16,81 @@ from ..services.auth_service import (
     get_current_user,
     decode_token,
     TokenData,
+    verify_password,
+    hash_password,
 )
 
 router = APIRouter(prefix="/auth", tags=["Autenticación"])
+
+
+# Dependencias
+async def get_current_user_dep(
+    request: Request,
+    db: Annotated[Session, Depends(get_db)]
+) -> User:
+    """Dependencia para obtener el usuario actual"""
+    return get_current_user(request, db)
+
+
+async def require_admin(
+    current_user: Annotated[User, Depends(get_current_user_dep)]
+) -> User:
+    """Dependencia que requiere rol admin"""
+    if current_user.rol != UserRole.ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Se requiere rol de administrador"
+        )
+    return current_user
+
+
+async def require_authenticated(
+    current_user: Annotated[User, Depends(get_current_user_dep)]
+) -> User:
+    """Dependencia que requiere usuario autenticado"""
+    return current_user
+
+
+async def require_ventas_access(
+    current_user: Annotated[User, Depends(get_current_user_dep)]
+) -> User:
+    """Dependencia que requiere acceso al módulo de ventas"""
+    if current_user.rol == UserRole.ADMIN:
+        return current_user
+    if not current_user.puede_acceder_ventas:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tienes acceso al módulo de ventas"
+        )
+    return current_user
+
+
+async def require_guias_access(
+    current_user: Annotated[User, Depends(get_current_user_dep)]
+) -> User:
+    """Dependencia que requiere acceso al módulo de guías"""
+    if current_user.rol == UserRole.ADMIN:
+        return current_user
+    if not current_user.puede_acceder_guias:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tienes acceso al módulo de guías"
+        )
+    return current_user
+
+
+async def require_retenciones_access(
+    current_user: Annotated[User, Depends(get_current_user_dep)]
+) -> User:
+    """Dependencia que requiere acceso al módulo de retenciones"""
+    if current_user.rol == UserRole.ADMIN:
+        return current_user
+    if not current_user.puede_acceder_retenciones:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tienes acceso al módulo de retenciones"
+        )
+    return current_user
 
 
 @router.post("/login")
@@ -60,6 +133,32 @@ async def logout(response: Response):
     """
     clear_auth_cookies(response)
     return {"message": "Sesión cerrada exitosamente"}
+
+
+@router.post("/change-password", response_model=ResponseBase)
+async def change_password(
+    data: UserChangePassword,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_authenticated)]
+):
+    """
+    Cambiar la contraseña del usuario actual.
+    """
+    # Verificar contraseña actual
+    if not verify_password(data.current_password, current_user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="La contraseña actual es incorrecta"
+        )
+    
+    # Hashear y actualizar nueva contraseña
+    current_user.password_hash = hash_password(data.new_password)
+    db.commit()
+    
+    return ResponseBase(
+        success=True,
+        message="Contraseña actualizada exitosamente"
+    )
 
 
 @router.post("/refresh")
@@ -129,76 +228,3 @@ async def get_me(
     )
 
 
-# Dependencia para obtener el usuario actual
-async def get_current_user_dep(
-    request: Request,
-    db: Annotated[Session, Depends(get_db)]
-) -> User:
-    """Dependencia para obtener el usuario actual"""
-    return get_current_user(request, db)
-
-
-# Dependencia para requerir rol admin
-async def require_admin(
-    current_user: Annotated[User, Depends(get_current_user_dep)]
-) -> User:
-    """Dependencia que requiere rol admin"""
-    if current_user.rol != UserRole.ADMIN:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Se requiere rol de administrador"
-        )
-    return current_user
-
-
-# Dependencia para requerir cualquier usuario autenticado
-async def require_authenticated(
-    current_user: Annotated[User, Depends(get_current_user_dep)]
-) -> User:
-    """Dependencia que requiere usuario autenticado"""
-    return current_user
-
-
-# Dependencia para requerir acceso a ventas
-async def require_ventas_access(
-    current_user: Annotated[User, Depends(get_current_user_dep)]
-) -> User:
-    """Dependencia que requiere acceso al módulo de ventas"""
-    if current_user.rol == UserRole.ADMIN:
-        return current_user
-    if not current_user.puede_acceder_ventas:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="No tienes acceso al módulo de ventas"
-        )
-    return current_user
-
-
-# Dependencia para requerir acceso a guías
-async def require_guias_access(
-    current_user: Annotated[User, Depends(get_current_user_dep)]
-) -> User:
-    """Dependencia que requiere acceso al módulo de guías"""
-    if current_user.rol == UserRole.ADMIN:
-        return current_user
-    if not current_user.puede_acceder_guias:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="No tienes acceso al módulo de guías"
-        )
-    return current_user
-
-
-# Dependencia para requerir acceso a retenciones
-async def require_retenciones_access(
-    current_user: Annotated[User, Depends(get_current_user_dep)]
-) -> User:
-    """Dependencia que requiere acceso al módulo de retenciones"""
-    if current_user.rol == UserRole.ADMIN:
-        return current_user
-    if not current_user.puede_acceder_retenciones:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="No tienes acceso al módulo de retenciones"
-        )
-    return current_user

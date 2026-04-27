@@ -4,6 +4,7 @@ from .ventas import ARDocument, ARDocumentDetail
 from .nube_response import ARFENube
 from .user import User, UserRole
 from .auditoria import Auditoria
+from .config import ConfiguracionEnvio
 
 __all__ = [
     "WHTransaction",

@@ -58,3 +58,9 @@ class UserLogin(BaseModel):
     """Schema para login"""
     dni: str = Field(..., min_length=8, max_length=8, pattern=r"^\d{8}$")
     password: str = Field(..., min_length=1)
+
+
+class UserChangePassword(BaseModel):
+    """Schema para cambiar contraseña"""
+    current_password: str = Field(..., min_length=1)
+    new_password: str = Field(..., min_length=6, max_length=50)

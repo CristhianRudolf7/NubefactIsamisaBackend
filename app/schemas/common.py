@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional, Any
+from typing import Optional, Any, List
 from datetime import datetime
 from enum import Enum
 
@@ -46,3 +46,9 @@ class AuditoriaBase(BaseModel):
     accion: str
     documento_id: str
     detalles: Optional[str] = None
+
+
+class BulkEnviarRequest(BaseModel):
+    """Request para envío masivo de documentos"""
+    ids: List[str]
+    usuario: str

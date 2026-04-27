@@ -4,7 +4,8 @@ from contextlib import asynccontextmanager
 
 from app.config import get_settings
 from app.database import engine, Base
-from app.routers import guias_router, retenciones_router, ventas_router, dashboard_router, auth_router, users_router, auditoria_router
+from app.routers import guias_router, retenciones_router, ventas_router, dashboard_router, auth_router, users_router, auditoria_router, config_router
+from app.worker import worker
 
 settings = get_settings()
 
@@ -18,9 +19,14 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"Warning: No se pudo conectar a la base de datos: {e}")
         print("El servidor iniciará pero las funciones de BD no estarán disponibles.")
+    
+    # Iniciar worker automático
+    worker.start()
+    
     yield
-    # Shutdown: Cerrar conexiones
-    pass
+    
+    # Shutdown: Cerrar conexiones y detener worker
+    worker.stop()
 
 
 app = FastAPI(
@@ -68,6 +74,7 @@ app.include_router(dashboard_router, prefix="/api")
 app.include_router(auth_router, prefix="/api")
 app.include_router(users_router, prefix="/api")
 app.include_router(auditoria_router, prefix="/api")
+app.include_router(config_router, prefix="/api")
 
 
 @app.get("/", tags=["Root"])

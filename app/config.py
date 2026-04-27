@@ -32,6 +32,10 @@ class Settings(BaseSettings):
     # Portal URL para links en notificaciones
     portal_url: str = "http://localhost:3000"
 
+    # Worker automático
+    auto_send_enabled: bool = False
+    auto_send_interval_seconds: int = 60
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"

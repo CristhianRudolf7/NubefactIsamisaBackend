@@ -1,13 +1,16 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, BackgroundTasks
 from fastapi.responses import Response
+from sqlalchemy import or_, func
 from sqlalchemy.orm import Session
 from typing import Optional, List, Annotated
 import base64
+import asyncio
+from datetime import datetime
 
 from ..database import get_db
 from ..models.retenciones import APRetencion, APRetencionDetail, APRetencionStatus
 from ..models.user import User
-from ..schemas.common import ResponseBase
+from ..schemas.common import ResponseBase, BulkEnviarRequest
 from ..schemas.retenciones import RetencionSchema, RetencionFilter
 from ..services.document_service import DocumentService
 from ..services.auditoria_service import AuditoriaService
@@ -16,6 +19,25 @@ from ..utils.datetime import now_peru
 from .auth import require_retenciones_access, require_admin
 
 router = APIRouter(prefix="/retenciones", tags=["Retenciones"])
+
+
+def date_to_excel(date_str: str) -> float:
+    """Convierte string dd-mm-YYYY [HH:mm] a float de Excel"""
+    try:
+        # Intentar con fecha y hora
+        try:
+            dt = datetime.strptime(date_str, "%d-%m-%Y %H:%M")
+        except ValueError:
+            # Fallback a solo fecha
+            dt = datetime.strptime(date_str, "%d-%m-%Y")
+            
+        # Ajustamos a 1899-12-31 como base para coincidir con el almacenamiento de la BD
+        excel_epoch = datetime(1899, 12, 31)
+        delta = dt - excel_epoch
+        # delta.total_seconds() / (24 * 3600) da la fracción exacta de días
+        return float(delta.total_seconds() / (24 * 3600))
+    except:
+        return 0.0
 
 
 @router.get("/", response_model=ResponseBase)
@@ -31,15 +53,32 @@ async def listar_retenciones(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100)
 ):
-    """Lista retenciones con filtros"""
     query = db.query(APRetencion)
+    
+    if fecha_inicio:
+        query = query.filter(APRetencion.DocumentDate >= date_to_excel(fecha_inicio))
+    if fecha_fin:
+        # Si la fecha_fin solo tiene fecha (10 caracteres), sumar el día completo
+        # Si tiene hora, usar el valor exacto
+        excel_fin = date_to_excel(fecha_fin)
+        if len(fecha_fin) <= 10:
+            excel_fin += 0.99999
+        query = query.filter(APRetencion.DocumentDate <= excel_fin)
     
     if serie:
         query = query.filter(APRetencion.Serie == serie)
     if numero:
         query = query.filter(APRetencion.Numero == numero)
     if estado:
-        query = query.filter(APRetencion.status == estado)
+        estado_lower = estado.lower()
+        if estado_lower == 'pendiente':
+            query = query.filter(or_(APRetencion.status == None, APRetencion.status == '', func.lower(APRetencion.status) == 'pendiente'))
+        elif estado_lower == 'aceptado':
+            query = query.filter(func.lower(APRetencion.status).in_(['aceptado', 'aceptada']))
+        elif estado_lower == 'rechazado':
+            query = query.filter(func.lower(APRetencion.status).in_(['rechazado', 'rechazada']))
+        else:
+            query = query.filter(func.lower(APRetencion.status) == estado_lower)
     if ruc_proveedor:
         query = query.filter(APRetencion.VendorRuc == ruc_proveedor)
     
@@ -233,6 +272,38 @@ async def enviar_retencion(
         success=True,
         message="Retención enviada correctamente",
         data=result["data"]
+    )
+
+
+async def procesar_envio_masivo_retenciones(ids: List[str], usuario: str, db: Session):
+    """Función de fondo para procesar múltiples retenciones"""
+    service = DocumentService(db)
+    for ret_id in ids:
+        try:
+            await service.enviar_retencion(int(ret_id), usuario)
+            await asyncio.sleep(1)
+        except Exception as e:
+            print(f"Error en envío masivo para retención {ret_id}: {e}")
+
+
+@router.post("/bulk-enviar", response_model=ResponseBase)
+async def enviar_masivo_retenciones(
+    request: BulkEnviarRequest,
+    background_tasks: BackgroundTasks,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_admin)]
+):
+    """Inicia el proceso de envío masivo de retenciones"""
+    background_tasks.add_task(
+        procesar_envio_masivo_retenciones,
+        request.ids,
+        request.usuario,
+        db
+    )
+    
+    return ResponseBase(
+        success=True,
+        message=f"Se ha iniciado el proceso de envío para {len(request.ids)} retenciones"
     )
 
 
