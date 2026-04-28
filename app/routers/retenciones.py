@@ -284,6 +284,15 @@ async def procesar_envio_masivo_retenciones(ids: List[str], usuario: str, db: Se
             await asyncio.sleep(1)
         except Exception as e:
             print(f"Error en envío masivo para retención {ret_id}: {e}")
+            # Marcar como error en la base de datos para que el usuario lo vea
+            try:
+                ret = db.query(APRetencion).filter(APRetencion.Id == int(ret_id)).first()
+                if ret:
+                    ret.status = "error"
+                    # Opcional: Registrar el error en APRetencionStatus si es posible
+                    db.commit()
+            except:
+                db.rollback()
 
 
 @router.post("/bulk-enviar", response_model=ResponseBase)

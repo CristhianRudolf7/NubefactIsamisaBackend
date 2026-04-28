@@ -326,6 +326,14 @@ async def procesar_envio_masivo_ventas(ids: List[str], usuario: str, db: Session
             await asyncio.sleep(1)
         except Exception as e:
             print(f"Error en envío masivo para {doc_id}: {e}")
+            # Marcar como error en la base de datos
+            try:
+                doc = db.query(ARDocument).filter(ARDocument.Document == doc_id).first()
+                if doc:
+                    doc.fe = "error"
+                    db.commit()
+            except:
+                db.rollback()
 
 
 @router.post("/bulk-enviar", response_model=ResponseBase)

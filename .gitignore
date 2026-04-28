@@ -17,6 +17,9 @@ ENV/
 *.db
 *.sqlite
 *.sqlite3
+sql/data/
+*.mdf
+*.ldf
 
 # IDE
 .vscode/
@@ -31,6 +34,9 @@ Thumbs.db
 # Logs
 *.log
 logs/
+sql/log/
+*.xel
+*.trc
 
 # Testing
 .pytest_cache/

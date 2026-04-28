@@ -295,19 +295,19 @@ class DocumentService:
         items = []
         for det in retencion.detalles:
             items.append(NubeFactRetencionItem(
-                documento_relacionado_serie=det.DRserie,
-                documento_relacionado_numero=det.DRnumero,
+                documento_relacionado_serie=det.DRserie or "",
+                documento_relacionado_numero=det.DRnumero or "",
                 documento_relacionado_fecha_de_emision=self._fecha_excel_to_date(det.DRfecha),
                 documento_relacionado_moneda="1" if det.DRmoneda == "LO" else "2",
-                documento_relacionado_total=det.DRtotal,
+                documento_relacionado_total=det.DRtotal or 0.0,
                 pago_fecha=self._fecha_excel_to_date(det.DRpagoFecha),
-                pago_numero=str(det.DRpagoNro),
-                pago_total_sin_retencion=det.DRpagoTotal,
-                tipo_de_cambio=det.TipoCambio,
+                pago_numero=str(det.DRpagoNro or ""),
+                pago_total_sin_retencion=det.DRpagoTotal or 0.0,
+                tipo_de_cambio=det.TipoCambio or 1.0,
                 tipo_de_cambio_fecha=self._fecha_excel_to_date(det.TipoCambioFecha),
-                importe_retenido=det.Retenido,
+                importe_retenido=det.Retenido or 0.0,
                 importe_retenido_fecha=self._fecha_excel_to_date(det.RetenidoFecha),
-                importe_pagado_con_retencion=det.Pagado,
+                importe_pagado_con_retencion=det.Pagado or 0.0,
             ))
         
         # Construir request

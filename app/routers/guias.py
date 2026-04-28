@@ -250,6 +250,14 @@ async def procesar_envio_masivo_guias(ids: List[str], usuario: str, db: Session)
             await asyncio.sleep(1)
         except Exception as e:
             print(f"Error en envío masivo para guía {trans_id}: {e}")
+            # Marcar como error en la base de datos
+            try:
+                guia = db.query(WHTransaction).filter(WHTransaction.Transaction == trans_id).first()
+                if guia:
+                    guia.envio_nube = "error"
+                    db.commit()
+            except:
+                db.rollback()
 
 
 @router.post("/bulk-enviar", response_model=ResponseBase)

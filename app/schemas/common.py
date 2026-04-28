@@ -50,5 +50,5 @@ class AuditoriaBase(BaseModel):
 
 class BulkEnviarRequest(BaseModel):
     """Request para envío masivo de documentos"""
-    ids: List[str]
+    ids: List[Any]
     usuario: str
