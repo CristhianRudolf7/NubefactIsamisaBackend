@@ -85,9 +85,53 @@ async def listar_documentos(
     if ruc_cliente:
         query = query.filter(ARDocument.VendorRUC == ruc_cliente)
     if tipo_documento:
-        # Limpiar prefijo LIMADSAS para la búsqueda para ser más flexibles
-        tipo_busqueda = tipo_documento.lower().replace('limadsas', '')
-        query = query.filter(func.lower(ARDocument.DocumentType).contains(tipo_busqueda))
+        # Mapear valores del filtro a posibles valores en la BD
+        # El frontend envía LIMADSASFACTURA, LIMADSASBOLETA, LIMADSASCREDITO, LIMADSASDEBITO
+        # La BD tiene valores con espacio: LIMADSAS FACTURA, LIMADSAS BOLETA, LIMADSAS NOTA CREDITO
+        tipo_lower = tipo_documento.lower()
+        
+        # Buscar el tipo limpiando el prefijo LIMADSAS si existe
+        tipo_busqueda = tipo_lower.replace('limadsas', '')
+        
+        # Construir lista de posibles valores a buscar
+        # Incluye variaciones con/sin prefijo, con/sin espacio y con/sin acentos
+        posibles_valores = [
+            tipo_busqueda,                    # factura, boleta, credito, debito
+            f'limadsas{tipo_busqueda}',       # limadsasfactura (sin espacio)
+            f'limadsas {tipo_busqueda}',      # limadsas factura (con espacio)
+        ]
+        
+        # Para débito, agregar variaciones con acento y otros formatos
+        if tipo_busqueda == 'debito':
+            posibles_valores.extend([
+                'débito',
+                'debit',
+                'limadsasdébito',
+                'limadsas débito',
+                'limadsasdebit',
+                'limadsas debit',
+                'nota de debito',
+                'nota de débito',
+                'nota_debito',
+                'nd',
+            ])
+        
+        # Para crédito, agregar variaciones con acento y otros formatos
+        if tipo_busqueda == 'credito':
+            posibles_valores.extend([
+                'crédito',
+                'limadsascrédito',
+                'limadsas crédito',
+                'nota de credito',
+                'nota de crédito',
+                'nota_de_credito',
+                'nc',
+                'limadsas nota credito',
+                'limadsas nota crédito',
+            ])
+        
+        # Buscar cualquiera de los valores posibles
+        query = query.filter(func.lower(ARDocument.DocumentType).in_(posibles_valores))
     
     # Paginación (SQL Server requiere ORDER BY para OFFSET)
     total = query.count()
@@ -487,6 +531,17 @@ async def actualizar_documento(
         datos_nuevos=datos_nuevos,
         usuario=usuario,
         ip=get_client_ip(request)
+    )
+    
+    # Notificar edición por WhatsApp
+    notification_service = NotificationService(db)
+    await notification_service.notificar_edicion_documento(
+        tipo_modulo="ventas",
+        tipo_documento=documento.DocumentType,
+        serie=documento.DocumentSerie,
+        numero=documento.DocumentNo,
+        usuario=usuario,
+        documento_id=documento.Document
     )
     
     return ResponseBase(

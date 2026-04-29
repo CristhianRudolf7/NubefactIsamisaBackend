@@ -410,6 +410,17 @@ async def actualizar_guia(
         ip=get_client_ip(request)
     )
     
+    # Notificar edición por WhatsApp
+    notification_service = NotificationService(db)
+    await notification_service.notificar_edicion_documento(
+        tipo_modulo="guias",
+        tipo_documento="guia",
+        serie=guia.DocumentSerie,
+        numero=guia.DocumentNo,
+        usuario=usuario,
+        documento_id=guia.Transaction
+    )
+    
     return ResponseBase(
         success=True,
         message="Guía actualizada correctamente",

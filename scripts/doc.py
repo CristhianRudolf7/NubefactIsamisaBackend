@@ -9,8 +9,8 @@ from decimal import Decimal
 from sqlalchemy.orm import Session
 from sqlalchemy import Integer, desc, func
 
-# Agregar el directorio raíz al path para poder importar app
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+# Agregar el directorio raíz del proyecto al sys.path
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.database import SessionLocal
 from app.models.ventas import ARDocument, ARDocumentDetail
@@ -33,7 +33,7 @@ def excel_date_now():
     delta = current_date_naive - excel_epoch
     return delta.days + delta.seconds / (24 * 3600)
 
-def get_next_correlative(db: Session, model, serie_field, number_field, type_filter=None, type_field=None):
+def get_next_correlative(db: Session, model, serie_field, number_field, type_filter=None, type_field=None, label="documento"):
     """Obtiene la serie y el siguiente número para un modelo dado"""
     query = db.query(model)
     if type_filter and type_field:
@@ -49,19 +49,21 @@ def get_next_correlative(db: Session, model, serie_field, number_field, type_fil
         except:
             next_num = 1
     else:
-        # Defaults si no hay datos
-        if type_filter == "FACTURA": serie = "F001"
-        elif type_filter == "BOLETA": serie = "B001"
-        elif type_filter == "CREDITO": serie = "FC01"
+        # Defaults si no hay datos - usar valores automáticos
+        serie = "0001"
+        if type_filter == "01": serie = "F001"
+        elif type_filter == "03": serie = "B001"
+        elif type_filter == "07": serie = "FC01"
         elif model == APRetencion: serie = "R001"
         elif model == WHTransaction: serie = "T001"
-        else: serie = "0001"
+
         next_num = 1
+        print(f"\n[INFO] No hay datos previos para {label} ({type_filter or ''}). Usando serie {serie}, número 00000001")
     
     return serie, str(next_num).zfill(6 if model == APRetencion else 8)
 
 def create_venta(db: Session, doc_type_name, type_code, ruc, name, suffix=""):
-    serie, numero = get_next_correlative(db, ARDocument, "DocumentSerie", "DocumentNo", type_code, "DocumentType")
+    serie, numero = get_next_correlative(db, ARDocument, "DocumentSerie", "DocumentNo", type_code, "typeDocSun", label=doc_type_name)
     doc_id = f"TEST-{type_code}-{serie}-{numero}{suffix}"
     
     doc = ARDocument(
@@ -75,9 +77,11 @@ def create_venta(db: Session, doc_type_name, type_code, ruc, name, suffix=""):
         DocumentDate=excel_date_now(),
         RegisterDate=excel_date_now(),
         DueDate=excel_date_now() + 30,
-        AmountNetLo=100.0,
-        AmountTaxLo=18.0,
-        AmountTotalLo=118.0,
+        DocumentCurrency="LO",  # Soles
+        ExchangeRate=1.0,  # Tipo de cambio
+        AmountNetLo=100.0,  # Subtotal
+        AmountTaxLo=18.0,   # IGV
+        AmountTotalLo=118.0,  # Total
         fe="", # Pendiente
         typeDocSun=type_code,
         XLastUser="GENERATOR",
@@ -90,9 +94,13 @@ def create_venta(db: Session, doc_type_name, type_code, ruc, name, suffix=""):
         Document=doc_id,
         Line=1,
         Description=f"Producto de prueba {suffix}",
+        Unit="NIU",  # Unidad
         Quantity=1,
-        Price=100.0,
-        Total=118.0,
+        Price=100.0,  # Valor unitario sin IGV
+        PriceTax=118.0,  # Precio unitario con IGV
+        SubTotal=100.0,  # Subtotal línea
+        TotalTaxLo=18.0,   # IGV línea
+        Total=118.0,  # Total línea
         XLastUser="GENERATOR",
         XLastDate=datetime.now().timestamp()
     )
@@ -100,7 +108,7 @@ def create_venta(db: Session, doc_type_name, type_code, ruc, name, suffix=""):
     return doc_id
 
 def create_retencion(db: Session, ruc, name, suffix=""):
-    serie, numero = get_next_correlative(db, APRetencion, "Serie", "Numero")
+    serie, numero = get_next_correlative(db, APRetencion, "Serie", "Numero", label="Retención")
     
     ret = APRetencion(
         Serie=serie,
@@ -138,7 +146,7 @@ def create_retencion(db: Session, ruc, name, suffix=""):
     return f"{serie}-{numero}"
 
 def create_guia(db: Session, ruc, name, suffix=""):
-    serie, numero = get_next_correlative(db, WHTransaction, "DocumentSerie", "DocumentNo")
+    serie, numero = get_next_correlative(db, WHTransaction, "DocumentSerie", "DocumentNo", label="Guía de Remisión")
     trans_id = f"TEST-GUIA-{serie}-{numero}{suffix}"
     
     guia = WHTransaction(
@@ -185,9 +193,10 @@ def main():
             for doc_name, sun_code in [("FACTURA", "01"), ("BOLETA", "03"), ("NOTA CREDITO", "07")]:
                 print(f"\nGenerando {doc_name}...")
                 id_good = create_venta(db, doc_name, sun_code, "20600695771", f"CLIENTE {doc_name} OK", " (OK)")
-                id_bad = create_venta(db, doc_name, sun_code, "123", f"CLIENTE {doc_name} ERROR", " (ERROR)")
+                # Para error: usar DNI con longitud incorrecta (6 caracteres en lugar de 8)
+                id_bad = create_venta(db, doc_name, sun_code, "123456", f"CLIENTE {doc_name} ERROR", " (ERROR)")
                 print(f"  Creado OK: {id_good}")
-                print(f"  Creado Error (RUC inválido): {id_bad}")
+                print(f"  Creado Error (DNI inválido - 6 caracteres): {id_bad}")
             
         elif choice == '2':
             print("\nGenerando Retención...")

@@ -6,7 +6,7 @@ class Settings(BaseSettings):
     """Configuración de la aplicación"""
 
     # Base de datos
-    database_url: str = "mssql+pyodbc://sa:Isamisa2024!@localhost:1433/isamisa_db?driver=ODBC+Driver+17+for+SQL+Server"
+    database_url: str = "mssql+pyodbc://sa:YourStrong%40Passw0rd@localhost:1433/isamisa_db?driver=ODBC+Driver+18+for+SQL+Server&TrustServerCertificate=yes"
 
     # NubeFact API
     nubefact_url: str = "https://api.nubefact.com/api/v1/1215c9d4-7765-4ac0-b9ea-268a1ee1b6d1"
@@ -32,10 +32,7 @@ class Settings(BaseSettings):
     # Portal URL para links en notificaciones
     portal_url: str = "http://localhost:3000"
 
-    # Worker automático
-    auto_send_enabled: bool = False
-    auto_send_interval_seconds: int = 60
-
+    # Worker automático (Se controla por base de datos)
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"

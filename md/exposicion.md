@@ -1,10 +1,8 @@
-por defecto de forma manual (envios masivos, escoger rangos de fechas)
-enviar de forma autonoma pero no por defecto
-eso debe ser por cada tipo de documento por rango de fechas
-
+ofuscar el boton de envio masivo
+actualmente el worker funciona asi este desactiado envio automatico
 # Modificaciones realizadas
 Formulario de edicion actualizado
-envio automatico y en  masa
+envio automatico y masivo
 ver perfil y editar contraseña
 
 # 1. Login

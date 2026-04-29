@@ -192,17 +192,27 @@ class DocumentService:
             if response.errors:
                 guia.RejectionReason = ", ".join(response.errors)
             
-            # Notificar error por WhatsApp
-            error_msg = ", ".join(response.errors) if response.errors else response.message
+            # Notificar por WhatsApp
             notification_service = NotificationService(self.db)
-            await notification_service.notificar_error_documento(
-                tipo_modulo="guias",
-                tipo_documento="guia",
-                serie=guia.DocumentSerie,
-                numero=guia.DocumentNo,
-                error=error_msg,
-                documento_id=guia.Transaction
-            )
+            if response.success:
+                if response.aceptada_por_sunat:
+                    await notification_service.notificar_envio_exitoso(
+                        tipo_modulo="guias",
+                        tipo_documento="guia",
+                        serie=guia.DocumentSerie,
+                        numero=guia.DocumentNo,
+                        mensaje_sunat=response.sunat_description
+                    )
+            else:
+                error_msg = ", ".join(response.errors) if response.errors else response.message
+                await notification_service.notificar_error_documento(
+                    tipo_modulo="guias",
+                    tipo_documento="guia",
+                    serie=guia.DocumentSerie,
+                    numero=guia.DocumentNo,
+                    error=error_msg,
+                    documento_id=guia.Transaction
+                )
 
         self.db.commit()
 
@@ -316,7 +326,7 @@ class DocumentService:
             numero=retencion.Numero,
             cliente_numero_de_documento=retencion.VendorRuc,
             cliente_denominacion=retencion.VendorName,
-            cliente_direccion=retencion.VendorAddress,
+            cliente_direccion=retencion.VendorAddress or "",
             fecha_de_emision=self._fecha_excel_to_date(retencion.DocumentDate),
             tipo_de_tasa_de_retencion="1" if retencion.Tasa == 3 else "2",
             total_retenido=retencion.TotalRetenido,
@@ -358,10 +368,19 @@ class DocumentService:
         
         self.db.commit()
         
-        # Notificar error por WhatsApp si falló
-        if not response.success:
+        # Notificar por WhatsApp
+        notification_service = NotificationService(self.db)
+        if response.success:
+            if response.aceptada_por_sunat:
+                await notification_service.notificar_envio_exitoso(
+                    tipo_modulo="retenciones",
+                    tipo_documento="retencion",
+                    serie=retencion.Serie,
+                    numero=retencion.Numero,
+                    mensaje_sunat=response.sunat_description
+                )
+        else:
             error_msg = ", ".join(response.errors) if response.errors else response.message
-            notification_service = NotificationService(self.db)
             await notification_service.notificar_error_documento(
                 tipo_modulo="retenciones",
                 tipo_documento="retencion",
@@ -439,8 +458,9 @@ class DocumentService:
         print(f"\nTipo comprobante mapeado: {tipo_comprobante}")
         
         # Mapear tipo de cliente
-        tipo_cliente = "6" if len(documento.VendorRUC or "") == 11 else "1"
-        print(f"Tipo cliente: {tipo_cliente}")
+        ruc_limpio = (documento.VendorRUC or "").strip()
+        tipo_cliente = "6" if len(ruc_limpio) == 11 else "1"
+        print(f"Tipo cliente: {tipo_cliente} (RUC: '{ruc_limpio}', len: {len(ruc_limpio)})")
         
         # Usar fecha de HOY (Perú) para NubeFact - requiere fecha actual
         fecha_emision_peru = peru_now.strftime("%d-%m-%Y")
@@ -454,7 +474,7 @@ class DocumentService:
             serie=documento.DocumentSerie,
             numero=documento.DocumentNo,
             cliente_tipo_de_documento=tipo_cliente,
-            cliente_numero_de_documento=documento.VendorRUC or "",
+            cliente_numero_de_documento=ruc_limpio,
             cliente_denominacion=documento.VendorName or "",
             cliente_direccion=documento.VendorAddress or "",
             fecha_de_emision=fecha_emision_peru,  # Usar fecha de HOY
@@ -532,10 +552,19 @@ class DocumentService:
         self.db.commit()
         print(f"{'='*60}\n")
         
-        # Notificar error por WhatsApp si falló
-        if not response.success:
+        # Notificar por WhatsApp
+        notification_service = NotificationService(self.db)
+        if response.success:
+            if response.aceptada_por_sunat:
+                await notification_service.notificar_envio_exitoso(
+                    tipo_modulo="ventas",
+                    tipo_documento=documento.DocumentType,
+                    serie=documento.DocumentSerie,
+                    numero=documento.DocumentNo,
+                    mensaje_sunat=response.sunat_description
+                )
+        else:
             error_msg = ", ".join(response.errors) if response.errors else response.message
-            notification_service = NotificationService(self.db)
             await notification_service.notificar_error_documento(
                 tipo_modulo="ventas",
                 tipo_documento=documento.DocumentType,

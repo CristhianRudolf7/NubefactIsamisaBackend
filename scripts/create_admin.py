@@ -2,8 +2,12 @@
 Script para crear un usuario administrador inicial.
 Uso: python create_admin.py
 """
+import os
 import sys
 from getpass import getpass
+
+# Agregar el directorio raíz del proyecto al sys.path
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from sqlalchemy.orm import Session
 
@@ -39,12 +43,12 @@ def create_admin():
             print("Error: El nombre es requerido")
             return
         
-        password = getpass("Contraseña (mínimo 6 caracteres): ")
+        password = input("Contraseña (mínimo 6 caracteres): ")
         if len(password) < 6:
             print("Error: La contraseña debe tener al menos 6 caracteres")
             return
         
-        password_confirm = getpass("Confirmar contraseña: ")
+        password_confirm = input("Confirmar contraseña: ")
         if password != password_confirm:
             print("Error: Las contraseñas no coinciden")
             return
@@ -53,6 +57,7 @@ def create_admin():
         user = User(
             dni=dni,
             nombre=nombre,
+            celular="000000000",
             password_hash=hash_password(password),
             rol=UserRole.ADMIN,
             is_active=True

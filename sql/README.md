@@ -161,11 +161,17 @@ password = quote_plus('YourStrong@Passw0rd')  # -> YourStrong%40Passw0rd
 
 ### Error: Driver no encontrado
 
-En Linux, instalar el driver ODBC:
+En Linux, instalar el driver ODBC 18:
 
 ```bash
-# Ubuntu/Debian
-curl https://packages.microsoft.com/keys/microsoft.asc | sudo apt-key add -
+# Debian 12 (bookworm)
+curl https://packages.microsoft.com/keys/microsoft.asc | sudo gpg --dearmor -o /usr/share/keyrings/microsoft-prod.gpg
+curl https://packages.microsoft.com/config/debian/12/prod.list | sudo tee /etc/apt/sources.list.d/mssql-release.list
+sudo apt update
+sudo ACCEPT_EULA=Y apt install -y msodbcsql18 unixodbc-dev
+
+# Ubuntu
+curl https://packages.microsoft.com/keys/microsoft.asc | sudo gpg --dearmor -o /usr/share/keyrings/microsoft-prod.gpg
 curl https://packages.microsoft.com/config/ubuntu/$(lsb_release -rs)/prod.list | sudo tee /etc/apt/sources.list.d/mssql-release.list
 sudo apt update
 sudo ACCEPT_EULA=Y apt install -y msodbcsql18 unixodbc-dev

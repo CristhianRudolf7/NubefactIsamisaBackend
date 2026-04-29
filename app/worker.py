@@ -90,15 +90,12 @@ class DocumentWorker:
             self.is_running = False
 
     def start(self):
-        if not settings.auto_send_enabled:
-            logger.info("Worker automático desactivado por configuración")
-            return
-
-        logger.info(f"Iniciando DocumentWorker (intervalo: {settings.auto_send_interval_seconds}s)")
+        """Inicia el scheduler del worker"""
+        logger.info("Iniciando DocumentWorker (revisión cada 60s)")
         self.scheduler.add_job(
             self.check_and_send_pending_documents,
             "interval",
-            seconds=settings.auto_send_interval_seconds,
+            seconds=60,
             id="check_pending_docs"
         )
         self.scheduler.start()

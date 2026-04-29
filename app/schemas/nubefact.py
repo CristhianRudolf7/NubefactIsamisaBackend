@@ -32,7 +32,7 @@ class NubeFactRequest(BaseModel):
     cliente_tipo_de_documento: str
     cliente_numero_de_documento: str
     cliente_denominacion: str
-    cliente_direccion: str
+    cliente_direccion: Optional[str] = ""
     cliente_email: str = ""
     cliente_email_1: str = ""
     cliente_email_2: str = ""
@@ -89,7 +89,7 @@ class NubeFactGuiaRequest(BaseModel):
     cliente_tipo_de_documento: str
     cliente_numero_de_documento: str
     cliente_denominacion: str
-    cliente_direccion: str
+    cliente_direccion: Optional[str] = ""
     cliente_email: str = ""
     cliente_email_1: str = ""
     cliente_email_2: str = ""
@@ -149,7 +149,7 @@ class NubeFactRetencionRequest(BaseModel):
     cliente_tipo_de_documento: str = "6"
     cliente_numero_de_documento: str
     cliente_denominacion: str
-    cliente_direccion: str
+    cliente_direccion: Optional[str] = ""
     cliente_email: str = ""
     cliente_email_1: str = ""
     cliente_email_2: str = ""

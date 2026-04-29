@@ -239,7 +239,7 @@ async def enviar_retencion(
         },
         "detalles": [
             {
-                "Line": d.Line,
+                "Line": d.ID,
                 "DRserie": d.DRserie,
                 "DRnumero": d.DRnumero,
                 "DRfecha": d.DRfecha,
@@ -283,15 +283,26 @@ async def procesar_envio_masivo_retenciones(ids: List[str], usuario: str, db: Se
             await service.enviar_retencion(int(ret_id), usuario)
             await asyncio.sleep(1)
         except Exception as e:
-            print(f"Error en envío masivo para retención {ret_id}: {e}")
+            error_msg = str(e)
+            print(f"Error en envío masivo para retención {ret_id}: {error_msg}")
             # Marcar como error en la base de datos para que el usuario lo vea
             try:
                 ret = db.query(APRetencion).filter(APRetencion.Id == int(ret_id)).first()
                 if ret:
                     ret.status = "error"
-                    # Opcional: Registrar el error en APRetencionStatus si es posible
+                    
+                    # Registrar el error en APRetencionStatus
+                    status_record = APRetencionStatus(
+                        Retencion=ret.Id,
+                        Status="error",
+                        error=error_msg,
+                        XlastUser=usuario,
+                        XlastDate=now_peru().timestamp(),
+                    )
+                    db.add(status_record)
                     db.commit()
-            except:
+            except Exception as db_e:
+                print(f"Error al guardar estado de error en DB: {db_e}")
                 db.rollback()
 
 
@@ -354,7 +365,7 @@ async def actualizar_retencion(
         "TotalPagado": retencion.TotalPagado,
         "detalles": [
             {
-                "Line": d.Line,
+                "ID": d.ID,
                 "DRserie": d.DRserie,
                 "DRnumero": d.DRnumero,
                 "DRfecha": d.DRfecha,
@@ -406,7 +417,7 @@ async def actualizar_retencion(
         "TotalPagado": retencion.TotalPagado,
         "detalles": [
             {
-                "Line": d.Line,
+                "ID": d.ID,
                 "DRserie": d.DRserie,
                 "DRnumero": d.DRnumero,
                 "DRfecha": d.DRfecha,
@@ -424,6 +435,17 @@ async def actualizar_retencion(
         datos_nuevos=datos_nuevos,
         usuario=usuario,
         ip=get_client_ip(request)
+    )
+    
+    # Notificar edición por WhatsApp
+    notification_service = NotificationService(db)
+    await notification_service.notificar_edicion_documento(
+        tipo_modulo="retenciones",
+        tipo_documento="retencion",
+        serie=retencion.Serie,
+        numero=retencion.Numero,
+        usuario=usuario,
+        documento_id=str(retencion.Id)
     )
     
     return ResponseBase(
@@ -472,7 +494,7 @@ async def anular_retencion(
         },
         "detalles": [
             {
-                "Line": d.Line,
+                "ID": d.ID,
                 "DRserie": d.DRserie,
                 "DRnumero": d.DRnumero,
                 "Retenido": d.Retenido,
