@@ -11,11 +11,14 @@ from ..database import get_db
 from ..models.ventas import ARDocument, ARDocumentDetail
 from ..models.nube_response import ARFENube
 from sqlalchemy.orm import joinedload
-from ..models.user import User
+import json
+from ..models.auditoria import Auditoria
+from ..models.user import User, UserRole
 from ..schemas.common import ResponseBase, BulkEnviarRequest
 from ..schemas.ventas import DocumentoVentaSchema, DocumentoVentaFilter, DocumentoVentaUpdate
 from ..services.document_service import DocumentService
 from ..services.auditoria_service import AuditoriaService
+from ..services.notification_service import NotificationService
 from ..utils import get_client_ip
 from ..utils.datetime import now_peru
 from .auth import require_ventas_access, require_admin
@@ -193,6 +196,8 @@ async def listar_documentos(
                     "Status": d.Status,
                     "error_mensaje": errores_nube.get((d.DocumentSerie, d.DocumentNo)),
                     "codigo_hash": hashes_nube.get((d.DocumentSerie, d.DocumentNo)),
+                    "necesita_aprobacion": d.necesita_aprobacion,
+                    "aprobacion_usuario": d.aprobacion_usuario,
                 }
                 for d in documentos
             ]
@@ -365,15 +370,20 @@ async def procesar_envio_masivo_ventas(ids: List[str], usuario: str, db: Session
     service = DocumentService(db)
     for doc_id in ids:
         try:
-            await service.enviar_documento_venta(doc_id, usuario)
+            result = await service.enviar_documento_venta(doc_id, usuario)
+            if not result.get("success", False):
+                print(f"Error devuelto por servicio para {doc_id}: {result.get('message')}")
+                doc = db.query(ARDocument).filter(ARDocument.Document == doc_id).first()
+                if doc and doc.fe in ["", "pendiente", None] and not doc.necesita_aprobacion:
+                    doc.fe = "error"
+                    db.commit()
             # Esperar 1 segundo entre envíos para no saturar
             await asyncio.sleep(1)
         except Exception as e:
-            print(f"Error en envío masivo para {doc_id}: {e}")
-            # Marcar como error en la base de datos
+            print(f"Excepción en envío masivo para {doc_id}: {e}")
             try:
                 doc = db.query(ARDocument).filter(ARDocument.Document == doc_id).first()
-                if doc:
+                if doc and doc.fe in ["", "pendiente", None] and not doc.necesita_aprobacion:
                     doc.fe = "error"
                     db.commit()
             except:
@@ -405,7 +415,7 @@ async def enviar_masivo_ventas(
 async def actualizar_documento(
     request: Request,
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_admin)],
+    current_user: Annotated[User, Depends(require_ventas_access)],
     document_id: str,
     datos: DocumentoVentaUpdate,
     usuario: str = Query(..., description="Usuario que actualiza")
@@ -499,6 +509,13 @@ async def actualizar_documento(
     documento.XLastUser = usuario
     documento.XLastDate = now_peru().timestamp()
     
+    # Lógica de aprobación: Trabajadores requieren aprobación, Admins no.
+    if current_user.rol == UserRole.TRABAJADOR:
+        documento.necesita_aprobacion = True
+    else:
+        documento.necesita_aprobacion = False
+        documento.aprobacion_usuario = usuario
+    
     db.commit()
     
     # Registrar auditoría
@@ -525,7 +542,7 @@ async def actualizar_documento(
     }
     auditoria = AuditoriaService(db)
     auditoria.registrar_cambio(
-        tabla="ventas",
+        tabla="AR_Document",
         registro_id=documento.Document,
         datos_anteriores=datos_anteriores,
         datos_nuevos=datos_nuevos,
@@ -549,6 +566,78 @@ async def actualizar_documento(
         message="Documento actualizado correctamente",
         data={"Document": documento.Document}
     )
+
+
+@router.post("/{document_id}/aprobar", response_model=ResponseBase)
+async def aprobar_documento(
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_admin)],
+    document_id: str,
+    usuario: str = Query(..., description="Usuario que aprueba")
+):
+    """Aprueba una edición realizada por un trabajador"""
+    documento = db.query(ARDocument).filter(ARDocument.Document == document_id).first()
+    if not documento:
+        raise HTTPException(status_code=404, detail="Documento no encontrado")
+    
+    documento.necesita_aprobacion = False
+    documento.aprobacion_usuario = usuario
+    db.commit()
+    
+    return ResponseBase(success=True, message="Documento aprobado correctamente")
+
+
+@router.post("/{document_id}/rechazar", response_model=ResponseBase)
+async def rechazar_documento(
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_admin)],
+    document_id: str
+):
+    """Rechaza los cambios y restaura la versión anterior"""
+    documento = db.query(ARDocument).filter(ARDocument.Document == document_id).first()
+    if not documento:
+        raise HTTPException(status_code=404, detail="Documento no encontrado")
+    
+    # Buscar el último registro de auditoría de tipo UPDATE para este documento
+    ultimo_cambio = db.query(Auditoria).filter(
+        Auditoria.tabla == "AR_Document",
+        Auditoria.registro_id == document_id,
+        Auditoria.accion == "UPDATE"
+    ).order_by(Auditoria.fecha.desc()).first()
+    
+    if not ultimo_cambio or not ultimo_cambio.datos_anteriores:
+        # Si no hay historial, simplemente quitamos el flag de aprobación
+        documento.necesita_aprobacion = False
+        db.commit()
+        return ResponseBase(success=True, message="Flag de aprobación removido (sin historial para restaurar)")
+
+    try:
+        anteriores = json.loads(ultimo_cambio.datos_anteriores)
+        
+        # Restaurar cabecera
+        for key, value in anteriores.items():
+            if key == "detalles": continue
+            if hasattr(documento, key):
+                setattr(documento, key, value)
+        
+        # Restaurar detalles
+        if "detalles" in anteriores:
+            # Eliminar actuales
+            db.query(ARDocumentDetail).filter(ARDocumentDetail.Document == document_id).delete()
+            # Insertar anteriores
+            for det in anteriores["detalles"]:
+                # Filtrar campos que no pertenecen al modelo
+                campos_modelo = ARDocumentDetail.__table__.columns.keys()
+                det_filtrado = {k: v for k, v in det.items() if k in campos_modelo}
+                nuevo_det = ARDocumentDetail(**det_filtrado)
+                db.add(nuevo_det)
+                
+        documento.necesita_aprobacion = False
+        db.commit()
+        return ResponseBase(success=True, message="Cambios rechazados y versión anterior restaurada")
+    except Exception as e:
+        db.rollback()
+        return ResponseBase(success=False, message=f"Error al restaurar versión: {str(e)}")
 
 
 @router.post("/{document_id}/anular", response_model=ResponseBase)

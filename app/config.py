@@ -8,9 +8,17 @@ class Settings(BaseSettings):
     # Base de datos
     database_url: str = "mssql+pyodbc://sa:YourStrong%40Passw0rd@localhost:1433/isamisa_db?driver=ODBC+Driver+18+for+SQL+Server&TrustServerCertificate=yes"
 
-    # NubeFact API
-    nubefact_url: str = "https://api.nubefact.com/api/v1/1215c9d4-7765-4ac0-b9ea-268a1ee1b6d1"
-    nubefact_token: str = "84b1e3cffb89488aab19c0853bc393e23f0f9ff355ef4c44a361a5a702ebedc1"
+    # NubeFact API - Ventas
+    nubefact_url_ventas: str = "https://api.nubefact.com/api/v1/1215c9d4-7765-4ac0-b9ea-268a1ee1b6d1"
+    nubefact_token_ventas: str = "84b1e3cffb89488aab19c0853bc393e23f0f9ff355ef4c44a361a5a702ebedc1"
+
+    # NubeFact API - Guías
+    nubefact_url_guias: str = "https://api.nubefact.com/api/v1/1215c9d4-7765-4ac0-b9ea-268a1ee1b6d1"
+    nubefact_token_guias: str = "84b1e3cffb89488aab19c0853bc393e23f0f9ff355ef4c44a361a5a702ebedc1"
+
+    # NubeFact API - Retenciones
+    nubefact_url_retenciones: str = "https://api.nubefact.com/api/v1/e12fceb7-d784-4d1e-b7e3-e3f399ec1259"
+    nubefact_token_retenciones: str = "2575c21c7f054518af91e0a4ca7db82dd3e74a979e9f4b6b9948ab5d21a29e61"
 
     # App
     app_name: str = "Sistema de Gestión de Documentos Electrónicos"

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Float, Integer, DateTime, Text, ForeignKey
+from sqlalchemy import Column, String, Float, Integer, DateTime, Text, ForeignKey, Boolean
 from sqlalchemy.orm import relationship
 from ..database import Base
 
@@ -99,6 +99,8 @@ class WHTransaction(Base):
     envio_nube = Column(String(50))
     phone = Column(String(20))
     correlativo = Column(Integer)
+    necesita_aprobacion = Column(Boolean, default=False)
+    aprobacion_usuario = Column(String(50))
     
     # Relación con detalles
     detalles = relationship("WHTransactionDetail", back_populates="transaccion")

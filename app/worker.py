@@ -35,9 +35,12 @@ class DocumentWorker:
             # 1. Procesar Ventas
             conf_ventas = configs.get('ventas')
             if conf_ventas and conf_ventas.modo == 'automatico' and conf_ventas.activo:
+                from sqlalchemy import func, or_
                 ventas_pendientes = db.query(ARDocument).filter(
-                    ARDocument.fe.in_(['', 'pendiente', None]),
-                    ARDocument.Status == '1'
+                    or_(ARDocument.fe == None, ARDocument.fe == '', func.lower(ARDocument.fe) == 'pendiente'),
+                    # No filtrar estrictamente por Status == '1' ya que puede variar en la BD
+                    # pero asegurarnos de que no necesite aprobación
+                    ARDocument.necesita_aprobacion == False
                 ).all()
                 
                 if ventas_pendientes:
@@ -45,7 +48,6 @@ class DocumentWorker:
                     for doc in ventas_pendientes:
                         try:
                             await service.enviar_documento_venta(doc.Document, "SISTEMA_AUTO")
-                            # Pequeño delay para no saturar
                             await asyncio.sleep(1)
                         except Exception as e:
                             logger.error(f"Error procesando venta {doc.Document}: {e}")
@@ -53,9 +55,10 @@ class DocumentWorker:
             # 2. Procesar Guías
             conf_guias = configs.get('guias')
             if conf_guias and conf_guias.modo == 'automatico' and conf_guias.activo:
+                from sqlalchemy import func, or_
                 guias_pendientes = db.query(WHTransaction).filter(
-                    WHTransaction.envio_nube.in_(['', 'pendiente', None]),
-                    WHTransaction.Status == '1'
+                    or_(WHTransaction.envio_nube == None, WHTransaction.envio_nube == '', func.lower(WHTransaction.envio_nube) == 'pendiente'),
+                    WHTransaction.necesita_aprobacion == False
                 ).all()
                 
                 if guias_pendientes:
@@ -70,8 +73,10 @@ class DocumentWorker:
             # 3. Procesar Retenciones
             conf_ret = configs.get('retenciones')
             if conf_ret and conf_ret.modo == 'automatico' and conf_ret.activo:
+                from sqlalchemy import func, or_
                 retenciones_pendientes = db.query(APRetencion).filter(
-                    APRetencion.status.in_(['', 'pendiente', None])
+                    or_(APRetencion.status == None, APRetencion.status == '', func.lower(APRetencion.status) == 'pendiente'),
+                    APRetencion.necesita_aprobacion == False
                 ).all()
                 
                 if retenciones_pendientes:

@@ -32,6 +32,8 @@ class GuiaRemisionBase(BaseModel):
     LicenciaConducir: Optional[str] = None
     envio_nube: Optional[str] = None
     Status: Optional[str] = None
+    necesita_aprobacion: Optional[bool] = False
+    aprobacion_usuario: Optional[str] = None
 
 
 class GuiaRemisionSchema(GuiaRemisionBase):

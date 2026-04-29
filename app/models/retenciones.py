@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Float, Integer, DateTime, Text, ForeignKey
+from sqlalchemy import Column, String, Float, Integer, DateTime, Text, ForeignKey, Boolean
 from sqlalchemy.orm import relationship
 from ..database import Base
 
@@ -22,6 +22,8 @@ class APRetencion(Base):
     XlastUser = Column(String(50))
     XlastDate = Column(Float)
     status = Column(String(20))
+    necesita_aprobacion = Column(Boolean, default=False)
+    aprobacion_usuario = Column(String(50))
     
     # Relaciones
     detalles = relationship("APRetencionDetail", back_populates="retencion")

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Float, Integer, DateTime, Text, ForeignKey
+from sqlalchemy import Column, String, Float, Integer, DateTime, Text, ForeignKey, Boolean
 from sqlalchemy.orm import relationship
 from ..database import Base
 
@@ -174,6 +174,8 @@ class ARDocument(Base):
     typeDocSun = Column(String(10))
     juntos = Column(String(10))
     duedate2 = Column(Float)
+    necesita_aprobacion = Column(Boolean, default=False)
+    aprobacion_usuario = Column(String(50))
     
     # Relación con detalles
     detalles = relationship("ARDocumentDetail", back_populates="documento")

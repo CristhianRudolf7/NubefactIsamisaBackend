@@ -37,6 +37,9 @@ async def obtener_estadisticas(
     ventas_error = db.query(func.count(ARDocument.Document)).filter(
         ARDocument.fe == "Error"
     ).scalar()
+    ventas_por_aprobar = db.query(func.count(ARDocument.Document)).filter(
+        ARDocument.necesita_aprobacion == True
+    ).scalar()
     
     # Estadísticas de Retenciones
     retenciones_total = db.query(func.count(APRetencion.Id)).scalar()
@@ -46,6 +49,9 @@ async def obtener_estadisticas(
     retenciones_pendientes = db.query(func.count(APRetencion.Id)).filter(
         APRetencion.status == None
     ).scalar()
+    retenciones_por_aprobar = db.query(func.count(APRetencion.Id)).filter(
+        APRetencion.necesita_aprobacion == True
+    ).scalar()
     
     # Estadísticas de Guías
     guias_total = db.query(func.count(WHTransaction.Transaction)).scalar()
@@ -54,6 +60,9 @@ async def obtener_estadisticas(
     ).scalar()
     guias_pendientes = db.query(func.count(WHTransaction.Transaction)).filter(
         WHTransaction.envio_nube == None
+    ).scalar()
+    guias_por_aprobar = db.query(func.count(WHTransaction.Transaction)).filter(
+        WHTransaction.necesita_aprobacion == True
     ).scalar()
     
     return ResponseBase(
@@ -65,17 +74,21 @@ async def obtener_estadisticas(
                 "enviadas": ventas_enviadas,
                 "pendientes": ventas_pendientes,
                 "error": ventas_error,
+                "por_aprobar": ventas_por_aprobar,
             },
             "retenciones": {
                 "total": retenciones_total,
                 "enviadas": retenciones_enviadas,
                 "pendientes": retenciones_pendientes,
+                "por_aprobar": retenciones_por_aprobar,
             },
             "guias": {
                 "total": guias_total,
                 "aceptadas": guias_aceptadas,
                 "pendientes": guias_pendientes,
-            }
+                "por_aprobar": guias_por_aprobar,
+            },
+            "por_aprobar_total": ventas_por_aprobar + retenciones_por_aprobar + guias_por_aprobar
         }
     )
 

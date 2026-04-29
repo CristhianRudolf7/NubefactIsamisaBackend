@@ -37,6 +37,8 @@ class RetencionBase(BaseModel):
     TotalRetenido: float
     TotalPagado: float
     status: Optional[str] = None
+    necesita_aprobacion: Optional[bool] = False
+    aprobacion_usuario: Optional[str] = None
 
 
 class RetencionSchema(RetencionBase):

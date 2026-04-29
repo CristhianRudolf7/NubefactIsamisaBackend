@@ -10,11 +10,14 @@ from datetime import datetime
 from ..database import get_db
 from ..models.guias import WHTransaction, WHTransactionDetail
 from ..models.guia_response import WHTransactionNube
-from ..models.user import User
+import json
+from ..models.auditoria import Auditoria
+from ..models.user import User, UserRole
 from ..schemas.common import ResponseBase, BulkEnviarRequest
 from ..schemas.guias import GuiaRemisionSchema, GuiaRemisionFilter
 from ..services.document_service import DocumentService
 from ..services.auditoria_service import AuditoriaService
+from ..services.notification_service import NotificationService
 from ..utils import get_client_ip
 from ..utils.datetime import now_peru
 from .auth import require_guias_access, require_admin
@@ -107,6 +110,8 @@ async def listar_guias(
                     "envio_nube": g.envio_nube,
                     "Status": g.Status,
                     "error_mensaje": g.RejectionReason or g.Comments or "No hay detalles del error disponibles" if g.envio_nube and g.envio_nube.lower() in ['error', 'rechazado'] else None,
+                    "necesita_aprobacion": g.necesita_aprobacion,
+                    "aprobacion_usuario": g.aprobacion_usuario,
                 }
                 for g in guias
             ]
@@ -246,15 +251,20 @@ async def procesar_envio_masivo_guias(ids: List[str], usuario: str, db: Session)
     service = DocumentService(db)
     for trans_id in ids:
         try:
-            await service.enviar_guia(trans_id, usuario)
+            result = await service.enviar_guia(trans_id, usuario)
+            if not result.get("success", False):
+                print(f"Error devuelto por servicio para {trans_id}: {result.get('message')}")
+                guia = db.query(WHTransaction).filter(WHTransaction.Transaction == trans_id).first()
+                if guia and guia.Status in ["pendiente", "error"] and not guia.necesita_aprobacion:
+                    guia.Status = "error"
+                    db.commit()
             await asyncio.sleep(1)
         except Exception as e:
-            print(f"Error en envío masivo para guía {trans_id}: {e}")
-            # Marcar como error en la base de datos
+            print(f"Excepción en envío masivo para guía {trans_id}: {e}")
             try:
                 guia = db.query(WHTransaction).filter(WHTransaction.Transaction == trans_id).first()
-                if guia:
-                    guia.envio_nube = "error"
+                if guia and guia.Status in ["pendiente", "error"] and not guia.necesita_aprobacion:
+                    guia.Status = "error"
                     db.commit()
             except:
                 db.rollback()
@@ -302,7 +312,7 @@ async def consultar_estado_guia(
 async def actualizar_guia(
     request: Request,
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_admin)],
+    current_user: Annotated[User, Depends(require_guias_access)],
     transaction_id: str,
     datos: dict,
     usuario: str = Query(..., description="Usuario que actualiza")
@@ -376,6 +386,13 @@ async def actualizar_guia(
     guia.XLastUser = usuario
     guia.XLastDate = now_peru().timestamp()
     
+    # Lógica de aprobación: Trabajadores requieren aprobación, Admins no.
+    if current_user.rol == UserRole.TRABAJADOR:
+        guia.necesita_aprobacion = True
+    else:
+        guia.necesita_aprobacion = False
+        guia.aprobacion_usuario = usuario
+    
     db.commit()
     
     # Registrar auditoría
@@ -402,7 +419,7 @@ async def actualizar_guia(
     }
     auditoria = AuditoriaService(db)
     auditoria.registrar_cambio(
-        tabla="guias",
+        tabla="WH_Transaction",
         registro_id=guia.Transaction,
         datos_anteriores=datos_anteriores,
         datos_nuevos=datos_nuevos,
@@ -426,6 +443,74 @@ async def actualizar_guia(
         message="Guía actualizada correctamente",
         data={"Transaction": guia.Transaction}
     )
+
+
+@router.post("/{transaction_id}/aprobar", response_model=ResponseBase)
+async def aprobar_guia(
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_admin)],
+    transaction_id: str,
+    usuario: str = Query(..., description="Usuario que aprueba")
+):
+    """Aprueba una edición realizada por un trabajador"""
+    guia = db.query(WHTransaction).filter(WHTransaction.Transaction == transaction_id).first()
+    if not guia:
+        raise HTTPException(status_code=404, detail="Guía no encontrada")
+    
+    guia.necesita_aprobacion = False
+    guia.aprobacion_usuario = usuario
+    db.commit()
+    
+    return ResponseBase(success=True, message="Guía aprobada correctamente")
+
+
+@router.post("/{transaction_id}/rechazar", response_model=ResponseBase)
+async def rechazar_guia(
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_admin)],
+    transaction_id: str
+):
+    """Rechaza los cambios y restaura la versión anterior"""
+    guia = db.query(WHTransaction).filter(WHTransaction.Transaction == transaction_id).first()
+    if not guia:
+        raise HTTPException(status_code=404, detail="Guía no encontrada")
+    
+    # Buscar el último registro de auditoría de tipo UPDATE para este documento
+    ultimo_cambio = db.query(Auditoria).filter(
+        Auditoria.tabla == "WH_Transaction",
+        Auditoria.registro_id == transaction_id,
+        Auditoria.accion == "UPDATE"
+    ).order_by(Auditoria.fecha.desc()).first()
+    
+    if not ultimo_cambio or not ultimo_cambio.datos_anteriores:
+        guia.necesita_aprobacion = False
+        db.commit()
+        return ResponseBase(success=True, message="Flag de aprobación removido (sin historial para restaurar)")
+
+    try:
+        anteriores = json.loads(ultimo_cambio.datos_anteriores)
+        
+        # Restaurar cabecera
+        for key, value in anteriores.items():
+            if key == "detalles": continue
+            if hasattr(guia, key):
+                setattr(guia, key, value)
+        
+        # Restaurar detalles
+        if "detalles" in anteriores:
+            db.query(WHTransactionDetail).filter(WHTransactionDetail.Transaction == transaction_id).delete()
+            for det in anteriores["detalles"]:
+                campos_modelo = WHTransactionDetail.__table__.columns.keys()
+                det_filtrado = {k: v for k, v in det.items() if k in campos_modelo}
+                nuevo_det = WHTransactionDetail(**det_filtrado)
+                db.add(nuevo_det)
+                
+        guia.necesita_aprobacion = False
+        db.commit()
+        return ResponseBase(success=True, message="Cambios rechazados y versión anterior restaurada")
+    except Exception as e:
+        db.rollback()
+        return ResponseBase(success=False, message=f"Error al restaurar versión: {str(e)}")
 
 
 @router.post("/{transaction_id}/anular", response_model=ResponseBase)

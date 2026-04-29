@@ -9,11 +9,14 @@ from datetime import datetime
 
 from ..database import get_db
 from ..models.retenciones import APRetencion, APRetencionDetail, APRetencionStatus
-from ..models.user import User
+import json
+from ..models.auditoria import Auditoria
+from ..models.user import User, UserRole
 from ..schemas.common import ResponseBase, BulkEnviarRequest
 from ..schemas.retenciones import RetencionSchema, RetencionFilter
 from ..services.document_service import DocumentService
 from ..services.auditoria_service import AuditoriaService
+from ..services.notification_service import NotificationService
 from ..utils import get_client_ip
 from ..utils.datetime import now_peru
 from .auth import require_retenciones_access, require_admin
@@ -124,6 +127,8 @@ async def listar_retenciones(
                     "TotalPagado": r.TotalPagado,
                     "status": r.status,
                     "error_mensaje": errores_status.get(r.Id),
+                    "necesita_aprobacion": r.necesita_aprobacion,
+                    "aprobacion_usuario": r.aprobacion_usuario,
                 }
                 for r in retenciones
             ]
@@ -280,15 +285,31 @@ async def procesar_envio_masivo_retenciones(ids: List[str], usuario: str, db: Se
     service = DocumentService(db)
     for ret_id in ids:
         try:
-            await service.enviar_retencion(int(ret_id), usuario)
+            result = await service.enviar_retencion(int(ret_id), usuario)
+            if not result.get("success", False):
+                print(f"Error devuelto por servicio para retención {ret_id}: {result.get('message')}")
+                ret = db.query(APRetencion).filter(APRetencion.Id == int(ret_id)).first()
+                if ret and ret.status in ["pendiente", "error"] and not ret.necesita_aprobacion:
+                    ret.status = "error"
+                    
+                    status_record = APRetencionStatus(
+                        RetencionId=int(ret_id),
+                        Status="error",
+                        Message=result.get("message", "Error al enviar"),
+                        RawResponse="",
+                        CreatedBy=usuario,
+                        CreatedAt=now_peru()
+                    )
+                    db.add(status_record)
+                    db.commit()
             await asyncio.sleep(1)
         except Exception as e:
             error_msg = str(e)
-            print(f"Error en envío masivo para retención {ret_id}: {error_msg}")
+            print(f"Excepción en envío masivo para retención {ret_id}: {error_msg}")
             # Marcar como error en la base de datos para que el usuario lo vea
             try:
                 ret = db.query(APRetencion).filter(APRetencion.Id == int(ret_id)).first()
-                if ret:
+                if ret and ret.status in ["pendiente", "error"] and not ret.necesita_aprobacion:
                     ret.status = "error"
                     
                     # Registrar el error en APRetencionStatus
@@ -331,7 +352,7 @@ async def enviar_masivo_retenciones(
 async def actualizar_retencion(
     request: Request,
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_admin)],
+    current_user: Annotated[User, Depends(require_retenciones_access)],
     retencion_id: int,
     datos: dict,
     usuario: str = Query(..., description="Usuario que actualiza")
@@ -402,6 +423,13 @@ async def actualizar_retencion(
     retencion.XlastUser = usuario
     retencion.XlastDate = now_peru().timestamp()
     
+    # Lógica de aprobación: Trabajadores requieren aprobación, Admins no.
+    if current_user.rol == UserRole.TRABAJADOR:
+        retencion.necesita_aprobacion = True
+    else:
+        retencion.necesita_aprobacion = False
+        retencion.aprobacion_usuario = usuario
+    
     db.commit()
     
     # Registrar auditoría
@@ -429,7 +457,7 @@ async def actualizar_retencion(
     }
     auditoria = AuditoriaService(db)
     auditoria.registrar_cambio(
-        tabla="retenciones",
+        tabla="AP_Retencion",
         registro_id=retencion.Id,
         datos_anteriores=datos_anteriores,
         datos_nuevos=datos_nuevos,
@@ -453,6 +481,74 @@ async def actualizar_retencion(
         message="Retención actualizada correctamente",
         data={"Id": retencion.Id}
     )
+
+
+@router.post("/{retencion_id}/aprobar", response_model=ResponseBase)
+async def aprobar_retencion(
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_admin)],
+    retencion_id: int,
+    usuario: str = Query(..., description="Usuario que aprueba")
+):
+    """Aprueba una edición realizada por un trabajador"""
+    retencion = db.query(APRetencion).filter(APRetencion.Id == retencion_id).first()
+    if not retencion:
+        raise HTTPException(status_code=404, detail="Retención no encontrada")
+    
+    retencion.necesita_aprobacion = False
+    retencion.aprobacion_usuario = usuario
+    db.commit()
+    
+    return ResponseBase(success=True, message="Retención aprobada correctamente")
+
+
+@router.post("/{retencion_id}/rechazar", response_model=ResponseBase)
+async def rechazar_retencion(
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_admin)],
+    retencion_id: int
+):
+    """Rechaza los cambios y restaura la versión anterior"""
+    retencion = db.query(APRetencion).filter(APRetencion.Id == retencion_id).first()
+    if not retencion:
+        raise HTTPException(status_code=404, detail="Retención no encontrada")
+    
+    # Buscar el último registro de auditoría de tipo UPDATE para este documento
+    ultimo_cambio = db.query(Auditoria).filter(
+        Auditoria.tabla == "AP_Retencion",
+        Auditoria.registro_id == str(retencion_id),
+        Auditoria.accion == "UPDATE"
+    ).order_by(Auditoria.fecha.desc()).first()
+    
+    if not ultimo_cambio or not ultimo_cambio.datos_anteriores:
+        retencion.necesita_aprobacion = False
+        db.commit()
+        return ResponseBase(success=True, message="Flag de aprobación removido (sin historial para restaurar)")
+
+    try:
+        anteriores = json.loads(ultimo_cambio.datos_anteriores)
+        
+        # Restaurar cabecera
+        for key, value in anteriores.items():
+            if key == "detalles": continue
+            if hasattr(retencion, key):
+                setattr(retencion, key, value)
+        
+        # Restaurar detalles
+        if "detalles" in anteriores:
+            db.query(APRetencionDetail).filter(APRetencionDetail.Retencion == retencion_id).delete()
+            for det in anteriores["detalles"]:
+                campos_modelo = APRetencionDetail.__table__.columns.keys()
+                det_filtrado = {k: v for k, v in det.items() if k in campos_modelo}
+                nuevo_det = APRetencionDetail(**det_filtrado)
+                db.add(nuevo_det)
+                
+        retencion.necesita_aprobacion = False
+        db.commit()
+        return ResponseBase(success=True, message="Cambios rechazados y versión anterior restaurada")
+    except Exception as e:
+        db.rollback()
+        return ResponseBase(success=False, message=f"Error al restaurar versión: {str(e)}")
 
 
 @router.post("/{retencion_id}/anular", response_model=ResponseBase)

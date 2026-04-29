@@ -49,16 +49,24 @@ def get_next_correlative(db: Session, model, serie_field, number_field, type_fil
         except:
             next_num = 1
     else:
-        # Defaults si no hay datos - usar valores automáticos
+        # Defaults si no hay datos - usar valores autorizados en NubeFact
         serie = "0001"
-        if type_filter == "01": serie = "F001"
-        elif type_filter == "03": serie = "B001"
-        elif type_filter == "07": serie = "FC01"
-        elif model == APRetencion: serie = "R001"
-        elif model == WHTransaction: serie = "T001"
+        if type_filter == "01": 
+            serie = "FFF1"
+            next_num = 21 # Empezar después del último registrado en NubeFact
+        elif type_filter == "03": 
+            serie = "BBB1"
+        elif type_filter == "07": 
+            serie = "FFC1"
+        elif model == APRetencion: 
+            serie = "R001"
+        elif model == WHTransaction: 
+            serie = "T001"
 
-        next_num = 1
-        print(f"\n[INFO] No hay datos previos para {label} ({type_filter or ''}). Usando serie {serie}, número 00000001")
+        if 'next_num' not in locals():
+            next_num = 1
+        
+        print(f"\n[INFO] No hay datos previos para {label} ({type_filter or ''}). Usando serie {serie}, número {str(next_num).zfill(8)}")
     
     return serie, str(next_num).zfill(6 if model == APRetencion else 8)
 

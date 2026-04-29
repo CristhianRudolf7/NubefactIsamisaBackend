@@ -28,6 +28,7 @@ async def listar_auditoria(
     usuario: Optional[str] = Query(None),
     fecha_inicio: Optional[str] = Query(None),
     fecha_fin: Optional[str] = Query(None),
+    registro_id: Optional[str] = Query(None),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
 ):
@@ -40,6 +41,8 @@ async def listar_auditoria(
         query = query.filter(Auditoria.tabla == tabla)
     if accion:
         query = query.filter(Auditoria.accion == accion)
+    if registro_id:
+        query = query.filter(Auditoria.registro_id == registro_id)
     if usuario:
         query = query.filter(Auditoria.usuario.ilike(f"%{usuario}%"))
     if fecha_inicio:

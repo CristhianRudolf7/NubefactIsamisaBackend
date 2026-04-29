@@ -80,6 +80,9 @@ class DocumentService:
         if guia.envio_nube and "aceptada" in guia.envio_nube.lower():
             return {"success": False, "message": "La guía ya fue enviada y aceptada"}
         
+        if guia.necesita_aprobacion:
+            return {"success": False, "message": "La guía requiere aprobación del administrador antes de ser enviada"}
+        
         # Construir request para NubeFact
         items = []
         for det in guia.detalles:
@@ -301,6 +304,9 @@ class DocumentService:
         if retencion.status == "enviado":
             return {"success": False, "message": "La retención ya fue enviada"}
         
+        if retencion.necesita_aprobacion:
+            return {"success": False, "message": "La retención requiere aprobación del administrador antes de ser enviada"}
+        
         # Construir items
         items = []
         for det in retencion.detalles:
@@ -426,6 +432,9 @@ class DocumentService:
         if documento.fe == "enviado":
             print(f"ERROR: Documento ya fue enviado")
             return {"success": False, "message": "El documento ya fue enviado"}
+        
+        if documento.necesita_aprobacion:
+            return {"success": False, "message": "El documento requiere aprobación del administrador antes de ser enviado"}
         
         # Construir items
         items = []

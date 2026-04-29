@@ -16,26 +16,29 @@ class NubeFactClient:
     """Cliente HTTP para API de NubeFact"""
     
     def __init__(self):
-        settings = get_settings()
-        self.base_url = settings.nubefact_url
-        self.token = settings.nubefact_token
-        self.headers = {
-            "Authorization": f"Token token=\"{self.token}\"",
-            "Content-Type": "application/json",
-        }
+        self.settings = get_settings()
         self.timeout = 30.0  # SUNAT puede tardar ~3 segundos
     
-    async def _send_request(self, data: Dict[str, Any]) -> NubeFactResponse:
+    def _get_headers(self, token: str) -> Dict[str, str]:
+        """Genera headers con el token dinámico"""
+        return {
+            "Authorization": f"Token token=\"{token}\"",
+            "Content-Type": "application/json",
+        }
+    
+    async def _send_request(self, data: Dict[str, Any], url: str, token: str) -> NubeFactResponse:
         """Envía solicitud a NubeFact"""
         print(f"\n--- NUBEFACT CLIENT ---")
-        print(f"URL: {self.base_url}")
+        print(f"URL: {url}")
         print(f"Data enviada: {data}")
+        
+        headers = self._get_headers(token)
         
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             try:
                 response = await client.post(
-                    self.base_url,
-                    headers=self.headers,
+                    url,
+                    headers=headers,
                     json=data
                 )
                 print(f"Status code: {response.status_code}")
@@ -90,38 +93,38 @@ class NubeFactClient:
                 )
     
     async def generar_comprobante(self, request: NubeFactRequest) -> NubeFactResponse:
-        """Genera factura, boleta, nota de crédito o débito"""
+        """Genera factura, boleta, nota de crédito o débito (Ventas)"""
         data = request.model_dump(exclude_none=True)
-        return await self._send_request(data)
+        return await self._send_request(data, self.settings.nubefact_url_ventas, self.settings.nubefact_token_ventas)
     
     async def generar_guia(self, request: NubeFactGuiaRequest) -> NubeFactResponse:
         """Genera guía de remisión"""
         data = request.model_dump(exclude_none=True)
-        return await self._send_request(data)
+        return await self._send_request(data, self.settings.nubefact_url_guias, self.settings.nubefact_token_guias)
     
     async def generar_retencion(self, request: NubeFactRetencionRequest) -> NubeFactResponse:
         """Genera comprobante de retención"""
         data = request.model_dump(exclude_none=True)
-        return await self._send_request(data)
+        return await self._send_request(data, self.settings.nubefact_url_retenciones, self.settings.nubefact_token_retenciones)
     
     async def consultar_comprobante(self, request: NubeFactConsultRequest) -> NubeFactResponse:
-        """Consulta estado de un CPE"""
+        """Consulta estado de un CPE (Ventas)"""
         data = request.model_dump()
-        return await self._send_request(data)
+        return await self._send_request(data, self.settings.nubefact_url_ventas, self.settings.nubefact_token_ventas)
     
     async def consultar_guia(self, request: NubeFactConsultRequest) -> NubeFactResponse:
         """Consulta estado de una guía de remisión"""
         data = request.model_dump()
-        data["operacion"] = "consultar_guia"  # Operación correcta para guías
-        return await self._send_request(data)
+        data["operacion"] = "consultar_guia"
+        return await self._send_request(data, self.settings.nubefact_url_guias, self.settings.nubefact_token_guias)
     
     async def consultar_anulacion(self, request: NubeFactConsultAnulacionRequest) -> NubeFactResponse:
-        """Consulta estado de una anulación"""
+        """Consulta estado de una anulación (Ventas)"""
         data = request.model_dump()
-        return await self._send_request(data)
+        return await self._send_request(data, self.settings.nubefact_url_ventas, self.settings.nubefact_token_ventas)
     
     async def generar_anulacion(self, tipo_comprobante: int, serie: str, numero: str, motivo: str = "") -> NubeFactResponse:
-        """Genera anulación de comprobante"""
+        """Genera anulación de comprobante (Ventas)"""
         data = {
             "operacion": "generar_anulacion",
             "tipo_de_comprobante": tipo_comprobante,
@@ -129,7 +132,7 @@ class NubeFactClient:
             "numero": numero,
             "motivo": motivo or "Error en documento"
         }
-        return await self._send_request(data)
+        return await self._send_request(data, self.settings.nubefact_url_ventas, self.settings.nubefact_token_ventas)
 
 
 # Instancia global del cliente
