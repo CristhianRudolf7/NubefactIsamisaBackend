@@ -456,14 +456,16 @@ class DocumentService:
                 codigo_producto_sunat=None,
             ))
         
-        # Mapear tipo de documento
+        # Mapear tipo de documento - Normalizar quitando espacios
+        doc_type_clean = (documento.DocumentType or "").replace(" ", "").upper()
         tipo_doc_map = {
             "LIMADSASFACTURA": 1,
             "LIMADSASBOLETA": 2,
             "LIMADSASCREDITO": 3,  # Nota de crédito
             "LIMADSASDEBITO": 4,   # Nota de débito
         }
-        tipo_comprobante = tipo_doc_map.get(documento.DocumentType, 1)
+        tipo_comprobante = tipo_doc_map.get(doc_type_clean, 1)
+        print(f"\nTipo comprobante original: {documento.DocumentType} -> Limpio: {doc_type_clean} -> Mapeado: {tipo_comprobante}")
         print(f"\nTipo comprobante mapeado: {tipo_comprobante}")
         
         # Mapear tipo de cliente

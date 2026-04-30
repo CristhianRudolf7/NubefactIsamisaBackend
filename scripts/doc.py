@@ -72,13 +72,19 @@ def get_next_correlative(db: Session, model, serie_field, number_field, type_fil
 
 def create_venta(db: Session, doc_type_name, type_code, ruc, name, suffix=""):
     serie, numero = get_next_correlative(db, ARDocument, "DocumentSerie", "DocumentNo", type_code, "typeDocSun", label=doc_type_name)
+    
+    # Forzar series autorizadas si se encuentran series antiguas/erróneas
+    if type_code == "03" and serie.startswith("B") and serie != "BBB1":
+        print(f"[FIX] Cambiando serie antigua {serie} por BBB1 para Boletas")
+        serie = "BBB1"
+    
     doc_id = f"TEST-{type_code}-{serie}-{numero}{suffix}"
     
     doc = ARDocument(
         Document=doc_id,
         DocumentNo=numero,
         DocumentSerie=serie,
-        DocumentType=f"LIMADSAS {doc_type_name}",
+        DocumentType=doc_type_name,
         Company="LIMADSAS",
         VendorName=name,
         VendorRUC=ruc,
@@ -199,10 +205,17 @@ def main():
         if choice == '1':
             # Ventas - Uno de cada uno (Bueno y Malo)
             for doc_name, sun_code in [("FACTURA", "01"), ("BOLETA", "03"), ("NOTA CREDITO", "07")]:
+                # Mapear a tipos internos que coincidan con la lógica de DocumentService
+                if sun_code == "01":
+                    doc_type_name = "LIMADSAS FACTURA"
+                elif sun_code == "03":
+                    doc_type_name = "LIMADSAS BOLETA"
+                else:
+                    doc_type_name = "LIMADSAS CREDITO"
                 print(f"\nGenerando {doc_name}...")
-                id_good = create_venta(db, doc_name, sun_code, "20600695771", f"CLIENTE {doc_name} OK", " (OK)")
+                id_good = create_venta(db, doc_type_name, sun_code, "20600695771", f"CLIENTE {doc_name} OK", " (OK)")
                 # Para error: usar DNI con longitud incorrecta (6 caracteres en lugar de 8)
-                id_bad = create_venta(db, doc_name, sun_code, "123456", f"CLIENTE {doc_name} ERROR", " (ERROR)")
+                id_bad = create_venta(db, doc_type_name, sun_code, "123456", f"CLIENTE {doc_name} ERROR", " (ERROR)")
                 print(f"  Creado OK: {id_good}")
                 print(f"  Creado Error (DNI inválido - 6 caracteres): {id_bad}")
             
