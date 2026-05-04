@@ -544,7 +544,7 @@ class DocumentService:
         error_str = ", ".join(response.errors) if response.errors else None
         nube_record = ARFENube(
             serie=documento.DocumentSerie,
-            numero=int(documento.DocumentNo) if documento.DocumentNo and str(documento.DocumentNo).isdigit() else 0,
+            numero=documento.DocumentNo,
             enlace=response.enlace,
             enlace_del_pdf=response.enlace_del_pdf,
             enlace_del_xml=response.enlace_del_xml,

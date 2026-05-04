@@ -16,7 +16,7 @@ from app.models.user import User, UserRole
 from app.services.auth_service import hash_password
 
 
-def create_admin():
+def create_admin(dni=None, nombre=None, password=None, celular="000000000"):
     """Crea un usuario administrador"""
     # Crear tablas si no existen
     Base.metadata.create_all(bind=engine)
@@ -24,54 +24,54 @@ def create_admin():
     db: Session = SessionLocal()
     
     try:
-        print("=== Crear Usuario Administrador ===\n")
+        # Si no se pasan argumentos, intentar obtener de variables de entorno
+        dni = dni or os.getenv("ADMIN_DNI")
+        password = password or os.getenv("ADMIN_PASSWORD")
+        nombre = nombre or os.getenv("ADMIN_NOMBRE", "Administrador Inicial")
+
+        # Si aún no hay datos, entrar en modo interactivo
+        if not dni or not password:
+            print("=== Crear Usuario Administrador (Modo Interactivo) ===\n")
+            dni = input("DNI (8 dígitos): ").strip()
+            nombre = input("Nombre completo: ").strip()
+            password = input("Contraseña (mínimo 6 caracteres): ")
+            password_confirm = input("Confirmar contraseña: ")
+            if password != password_confirm:
+                print("Error: Las contraseñas no coinciden")
+                return
         
-        # Solicitar datos
-        dni = input("DNI (8 dígitos): ").strip()
         if len(dni) != 8 or not dni.isdigit():
-            print("Error: El DNI debe tener 8 dígitos numéricos")
+            print(f"Error: El DNI '{dni}' debe tener 8 dígitos numéricos")
             return
         
-        # Verificar si ya existe
-        existing = db.query(User).filter(User.dni == dni).first()
-        if existing:
-            print(f"Error: Ya existe un usuario con DNI {dni}")
-            return
-        
-        nombre = input("Nombre completo: ").strip()
-        if not nombre:
-            print("Error: El nombre es requerido")
-            return
-        
-        password = input("Contraseña (mínimo 6 caracteres): ")
         if len(password) < 6:
             print("Error: La contraseña debe tener al menos 6 caracteres")
             return
-        
-        password_confirm = input("Confirmar contraseña: ")
-        if password != password_confirm:
-            print("Error: Las contraseñas no coinciden")
+
+        # Verificar si ya existe
+        existing = db.query(User).filter(User.dni == dni).first()
+        if existing:
+            print(f"Información: Ya existe un usuario con DNI {dni}. Saltando creación.")
             return
         
         # Crear usuario
         user = User(
             dni=dni,
             nombre=nombre,
-            celular="000000000",
+            celular=celular,
             password_hash=hash_password(password),
             rol=UserRole.ADMIN,
-            is_active=True
+            is_active=True,
+            puede_acceder_ventas=True,
+            puede_acceder_guias=True,
+            puede_acceder_retenciones=True
         )
         
         db.add(user)
         db.commit()
         db.refresh(user)
         
-        print(f"\n¡Usuario administrador creado exitosamente!")
-        print(f"  ID: {user.id}")
-        print(f"  DNI: {user.dni}")
-        print(f"  Nombre: {user.nombre}")
-        print(f"  Rol: {user.rol.value}")
+        print(f"\n¡Usuario administrador '{user.nombre}' creado exitosamente!")
         
     except Exception as e:
         print(f"Error: {e}")

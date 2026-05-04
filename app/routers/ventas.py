@@ -150,7 +150,7 @@ async def listar_documentos(
         if d.fe and d.fe.lower() not in ['pendiente', '', None]:
             nube_resp = db.query(ARFENube).filter(
                 ARFENube.serie == d.DocumentSerie,
-                ARFENube.numero == (int(d.DocumentNo) if d.DocumentNo and str(d.DocumentNo).isdigit() else 0)
+                ARFENube.numero == d.DocumentNo
             ).order_by(ARFENube.id.desc()).first()
             if nube_resp and nube_resp.codigo_hash:
                 hashes_nube[(d.DocumentSerie, d.DocumentNo)] = nube_resp.codigo_hash
@@ -159,7 +159,7 @@ async def listar_documentos(
         for serie, numero, rejection_reason, comments in series_numeros:
             nube_resp = db.query(ARFENube).filter(
                 ARFENube.serie == serie,
-                ARFENube.numero == (int(numero) if numero and str(numero).isdigit() else 0)
+                ARFENube.numero == numero
             ).order_by(ARFENube.id.desc()).first()
             if nube_resp:
                 error_msg = nube_resp.sunat_soap_error or nube_resp.error or nube_resp.sunat_description or None
@@ -222,7 +222,7 @@ async def obtener_documento(
     # Obtener respuesta de NubeFact
     nube_response = db.query(ARFENube).filter(
         ARFENube.serie == documento.DocumentSerie,
-        ARFENube.numero == (int(documento.DocumentNo) if documento.DocumentNo and str(documento.DocumentNo).isdigit() else 0)
+        ARFENube.numero == documento.DocumentNo
     ).order_by(ARFENube.id.desc()).first()
     
     # Obtener mensaje de error si existe
@@ -743,7 +743,7 @@ async def descargar_pdf(
 
     nube_response = db.query(ARFENube).filter(
         ARFENube.serie == documento.DocumentSerie,
-        ARFENube.numero == (int(documento.DocumentNo) if documento.DocumentNo and str(documento.DocumentNo).isdigit() else 0)
+        ARFENube.numero == documento.DocumentNo
     ).order_by(ARFENube.id.desc()).first()
 
     if not nube_response:
@@ -780,7 +780,7 @@ async def descargar_xml(
 
     nube_response = db.query(ARFENube).filter(
         ARFENube.serie == documento.DocumentSerie,
-        ARFENube.numero == (int(documento.DocumentNo) if documento.DocumentNo and str(documento.DocumentNo).isdigit() else 0)
+        ARFENube.numero == documento.DocumentNo
     ).order_by(ARFENube.id.desc()).first()
 
     if not nube_response:
@@ -817,7 +817,7 @@ async def descargar_cdr(
 
     nube_response = db.query(ARFENube).filter(
         ARFENube.serie == documento.DocumentSerie,
-        ARFENube.numero == (int(documento.DocumentNo) if documento.DocumentNo and str(documento.DocumentNo).isdigit() else 0)
+        ARFENube.numero == documento.DocumentNo
     ).order_by(ARFENube.id.desc()).first()
 
     if not nube_response:
