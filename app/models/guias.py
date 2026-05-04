@@ -110,8 +110,8 @@ class WHTransactionDetail(Base):
     """Modelo para Guías de Remisión - Detalle"""
     __tablename__ = "WH_TransactionDetail"
     
-    Line = Column(Integer, primary_key=True, index=True)
-    Transaction = Column(String(50), ForeignKey("WH_Transaction.Transaction"))
+    Line = Column(Integer, primary_key=True)
+    Transaction = Column(String(50), ForeignKey("WH_Transaction.Transaction"), primary_key=True)
     Unit = Column(String(10))
     QuantityBultos = Column(Float)
     UnitBultos = Column(String(10))
