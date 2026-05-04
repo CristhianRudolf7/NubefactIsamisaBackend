@@ -318,7 +318,7 @@ class DocumentService:
                 documento_relacionado_total=det.DRtotal or 0.0,
                 pago_fecha=self._fecha_excel_to_date(det.DRpagoFecha),
                 pago_numero=str(det.DRpagoNro or ""),
-                pago_total_sin_retencion=det.DRpagoTotal or 0.0,
+                pago_total_sin_retencion=det.DRtotal or 0.0,
                 tipo_de_cambio=det.TipoCambio or 1.0,
                 tipo_de_cambio_fecha=self._fecha_excel_to_date(det.TipoCambioFecha),
                 importe_retenido=det.Retenido or 0.0,
@@ -396,9 +396,14 @@ class DocumentService:
                 documento_id=str(retencion.Id)
             )
         
+        # Construir mensaje con errores si existen
+        mensaje = response.message
+        if response.errors:
+            mensaje = response.message + ": " + ", ".join(response.errors)
+            
         return {
             "success": response.success,
-            "message": response.message,
+            "message": mensaje,
             "data": response.model_dump(exclude_none=True)
         }
     
@@ -539,7 +544,7 @@ class DocumentService:
         error_str = ", ".join(response.errors) if response.errors else None
         nube_record = ARFENube(
             serie=documento.DocumentSerie,
-            numero=documento.DocumentNo,
+            numero=int(documento.DocumentNo) if documento.DocumentNo and str(documento.DocumentNo).isdigit() else 0,
             enlace=response.enlace,
             enlace_del_pdf=response.enlace_del_pdf,
             enlace_del_xml=response.enlace_del_xml,
@@ -585,9 +590,14 @@ class DocumentService:
                 documento_id=documento.Document
             )
         
+        # Construir mensaje con errores si existen
+        mensaje = response.message
+        if response.errors:
+            mensaje = response.message + ": " + ", ".join(response.errors)
+            
         return {
             "success": response.success,
-            "message": response.message,
+            "message": mensaje,
             "data": response.model_dump(exclude_none=True)
         }
     

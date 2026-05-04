@@ -124,6 +124,10 @@ def create_venta(db: Session, doc_type_name, type_code, ruc, name, suffix=""):
 def create_retencion(db: Session, ruc, name, suffix=""):
     serie, numero = get_next_correlative(db, APRetencion, "Serie", "Numero", label="Retención")
     
+    # Forzar inicio desde 5001 si el correlativo es menor
+    if int(numero) < 5001:
+        numero = "005001"
+    
     ret = APRetencion(
         Serie=serie,
         Numero=numero,
@@ -143,12 +147,12 @@ def create_retencion(db: Session, ruc, name, suffix=""):
     detail = APRetencionDetail(
         Retencion=ret.Id,
         DRserie="F001",
-        DRnumero="000001",
+        DRnumero="1",
         DRfecha=excel_date_now() - 5,
-        DRmoneda="PEN",
+        DRmoneda="LO",
         DRtotal=1000.0,
         DRpagoFecha=excel_date_now(),
-        DRpagoNro="OP-12345",
+        DRpagoNro="12345",
         DRpagoTotal=970.0,
         TipoCambio=1.0,
         TipoCambioFecha=excel_date_now(),
@@ -161,6 +165,8 @@ def create_retencion(db: Session, ruc, name, suffix=""):
 
 def create_guia(db: Session, ruc, name, suffix=""):
     serie, numero = get_next_correlative(db, WHTransaction, "DocumentSerie", "DocumentNo", label="Guía de Remisión")
+    if int(numero) < 20:
+        numero = "000020"
     trans_id = f"TEST-GUIA-{serie}-{numero}{suffix}"
     
     guia = WHTransaction(
@@ -170,10 +176,20 @@ def create_guia(db: Session, ruc, name, suffix=""):
         DocumentType="GUIA REMISION",
         TargetPersonRUC=ruc,
         TargetPersonName=name,
+        TargetAddress="CALLE LOS GIRASOLES 456, LIMA",
         TransactionDate=excel_date_now(),
-        FechaTraslado=excel_date_now() + 1,
+        FechaTraslado=excel_date_now(),
         MotivoTraslado="VENTA",
         Status="pendiente",
+        ubigeo_des="150101",  # Lima
+        origenaddress="CALLE LAS MARGARITAS 123, LIMA",
+        PesoBruto=10.5,
+        RucTransportista="20602674488",
+        Transportista="TRANSPORTES ISAMISA S.A.C.",
+        VehicleID="ABC-123",
+        Driver="PEREZ GARCIA JUAN",
+        DriverId="12345678",
+        LicenciaConducir="Q12345678",
         XLastUser="GENERATOR",
         XLastDate=datetime.now().timestamp()
     )
@@ -183,6 +199,7 @@ def create_guia(db: Session, ruc, name, suffix=""):
     detail = WHTransactionDetail(
         Transaction=trans_id,
         Line=1,
+        ItemCode="PROD001",
         ItemDescription=f"Item de guía de prueba {suffix}",
         Quantity=10.0,
         Unit="NIU",

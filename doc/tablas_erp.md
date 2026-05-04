@@ -488,3 +488,26 @@
 | SerieAnticipo | Float / Decimal |  |
 | DocumentoAnticipo | Float / Decimal |  |
 
+
+## Archivo: ar_fe_nube.xlsx
+
+### Tabla: AR_FE_Nube
+
+| Columna | Tipo de Dato | Ejemplo |
+| --- | --- | --- |
+| id | int64 | 427622 |
+| serie | str | B036 |
+| numero | int64 | 222744 |
+| enlace | str |  |
+| aceptada_por_sunat | float64 |  |
+| sunat_description | float64 |  |
+| sunat_note | float64 |  |
+| sunat_responsecode | float64 |  |
+| sunat_soap_error | float64 |  |
+| pdf_zip_base64 | float64 |  |
+| xml_zip_base64 | float64 |  |
+| cdr_zip_base64 | float64 |  |
+| codigo_hash_qr | str |  |
+| codigo_hash | str |  |
+| error | str | Este documento ya existe |
+| web | str | N |

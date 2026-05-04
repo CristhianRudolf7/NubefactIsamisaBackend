@@ -4,11 +4,11 @@ from ..database import Base
 
 class ARFENube(Base):
     """Modelo para respuestas de NubeFact - Facturación Electrónica"""
-    __tablename__ = "ar_fe_nube"
+    __tablename__ = "AR_FE_Nube"
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     serie = Column(String(10))
-    numero = Column(String(20))
+    numero = Column(Integer)
     enlace = Column(String(500))
     enlace_del_pdf = Column(String(500))
     enlace_del_xml = Column(String(500))
@@ -24,5 +24,6 @@ class ARFENube(Base):
     codigo_hash_qr = Column(String(200))
     codigo_hash = Column(String(200))
     error = Column(Text)
+    web = Column(String(10), default="N")
     fecha_envio = Column(Float)
     usuario_envio = Column(String(50))

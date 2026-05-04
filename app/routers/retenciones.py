@@ -293,12 +293,11 @@ async def procesar_envio_masivo_retenciones(ids: List[str], usuario: str, db: Se
                     ret.status = "error"
                     
                     status_record = APRetencionStatus(
-                        RetencionId=int(ret_id),
+                        Retencion=int(ret_id),
                         Status="error",
-                        Message=result.get("message", "Error al enviar"),
-                        RawResponse="",
-                        CreatedBy=usuario,
-                        CreatedAt=now_peru()
+                        Descripcion=result.get("message", "Error al enviar"),
+                        XlastUser=usuario,
+                        XlastDate=now_peru().timestamp(),
                     )
                     db.add(status_record)
                     db.commit()
