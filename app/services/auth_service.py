@@ -107,8 +107,14 @@ def clear_auth_cookies(response: Response):
 
 
 def get_current_user(request: Request, db: Session) -> User:
-    """Obtiene el usuario actual desde el token en la cookie"""
+    """Obtiene el usuario actual desde el token en la cookie o header Authorization"""
     access_token = request.cookies.get("access_token")
+    
+    # Si no hay cookie, buscar en header Authorization
+    if not access_token:
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            access_token = auth_header.split(" ")[1]
     
     if not access_token:
         raise HTTPException(

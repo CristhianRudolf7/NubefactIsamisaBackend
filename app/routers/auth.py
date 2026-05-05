@@ -116,11 +116,13 @@ async def login(
     access_token = create_access_token(token_data)
     refresh_token = create_refresh_token(token_data)
     
-    # Establecer cookies
+    # Establecer cookies (opcional, para compatibilidad)
     set_auth_cookies(response, access_token, refresh_token)
     
     return {
         "message": "Login exitoso",
+        "access_token": access_token,
+        "refresh_token": refresh_token,
         "user": UserResponse.model_validate(user)
     }
 
@@ -172,6 +174,14 @@ async def refresh_token(
     """
     refresh_token = request.cookies.get("refresh_token")
     
+    # Si no hay cookie, intentar obtener del body
+    if not refresh_token:
+        try:
+            body = await request.json()
+            refresh_token = body.get("refresh_token")
+        except:
+            pass
+
     if not refresh_token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -201,11 +211,13 @@ async def refresh_token(
     new_access_token = create_access_token(token_data)
     new_refresh_token = create_refresh_token(token_data)
     
-    # Establecer nuevas cookies
+    # Establecer nuevas cookies (opcional)
     set_auth_cookies(response, new_access_token, new_refresh_token)
     
     return {
         "message": "Token renovado",
+        "access_token": new_access_token,
+        "refresh_token": new_refresh_token,
         "user": UserResponse.model_validate(user)
     }
 
