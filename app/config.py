@@ -40,6 +40,9 @@ class Settings(BaseSettings):
     # Portal URL para links en notificaciones
     portal_url: str = "http://localhost:3000"
 
+    # CORS Origins
+    allowed_origins: str = "http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173,http://192.168.1.10:5173,http://192.168.1.3:5173"
+
     # Worker automático (Se controla por base de datos)
     class Config:
         env_file = ".env"
