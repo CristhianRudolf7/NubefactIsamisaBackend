@@ -114,55 +114,54 @@ async def actividad_semanal(
         # 1. Ventas
         try:
             ventas_raw = db.query(
-                cast(ARDocument.DocumentDate, Integer).label("fecha_excel"),
+                cast(ARDocument.DocumentDate, Date).label("fecha"),
                 func.count(ARDocument.Document).label("cantidad")
             ).filter(
-                ARDocument.DocumentDate >= excel_inicio,
-                ARDocument.DocumentDate < (excel_fin + 1)
-            ).group_by(cast(ARDocument.DocumentDate, Integer)).all()
+                ARDocument.DocumentDate >= dias[0],
+                ARDocument.DocumentDate < (hoy + timedelta(days=1))
+            ).group_by(cast(ARDocument.DocumentDate, Date)).all()
             
             for res in ventas_raw:
-                d_obj = base_excel + timedelta(days=res.fecha_excel)
-                ds = d_obj.strftime("%Y-%m-%d")
-                if ds in conteo_por_dia:
-                    conteo_por_dia[ds] += res.cantidad
+                if res.fecha:
+                    ds = res.fecha.strftime("%Y-%m-%d")
+                    if ds in conteo_por_dia:
+                        conteo_por_dia[ds] += res.cantidad
         except Exception as e:
             logger.error(f"Error consultando actividad de ventas: {e}")
 
         # 2. Guías
         try:
             guias_raw = db.query(
-                cast(WHTransaction.TransactionDate, Integer).label("fecha_excel"),
+                cast(WHTransaction.TransactionDate, Date).label("fecha"),
                 func.count(WHTransaction.Transaction).label("cantidad")
             ).filter(
-                WHTransaction.TransactionDate >= excel_inicio,
-                WHTransaction.TransactionDate < (excel_fin + 1)
-            ).group_by(cast(WHTransaction.TransactionDate, Integer)).all()
+                WHTransaction.TransactionDate >= dias[0],
+                WHTransaction.TransactionDate < (hoy + timedelta(days=1))
+            ).group_by(cast(WHTransaction.TransactionDate, Date)).all()
             
             for res in guias_raw:
-                d_obj = base_excel + timedelta(days=res.fecha_excel)
-                ds = d_obj.strftime("%Y-%m-%d")
-                if ds in conteo_por_dia:
-                    conteo_por_dia[ds] += res.cantidad
+                if res.fecha:
+                    ds = res.fecha.strftime("%Y-%m-%d")
+                    if ds in conteo_por_dia:
+                        conteo_por_dia[ds] += res.cantidad
         except Exception as e:
             logger.error(f"Error consultando actividad de guías: {e}")
 
         # 3. Retenciones
         try:
-            # En AP_Retencion el campo es DocumentDate (Float Excel)
             retenciones_raw = db.query(
-                cast(APRetencion.DocumentDate, Integer).label("fecha_excel"),
+                cast(APRetencion.DocumentDate, Date).label("fecha"),
                 func.count(APRetencion.Id).label("cantidad")
             ).filter(
-                APRetencion.DocumentDate >= excel_inicio,
-                APRetencion.DocumentDate < (excel_fin + 1)
-            ).group_by(cast(APRetencion.DocumentDate, Integer)).all()
+                APRetencion.DocumentDate >= dias[0],
+                APRetencion.DocumentDate < (hoy + timedelta(days=1))
+            ).group_by(cast(APRetencion.DocumentDate, Date)).all()
             
             for res in retenciones_raw:
-                d_obj = base_excel + timedelta(days=res.fecha_excel)
-                ds = d_obj.strftime("%Y-%m-%d")
-                if ds in conteo_por_dia:
-                    conteo_por_dia[ds] += res.cantidad
+                if res.fecha:
+                    ds = res.fecha.strftime("%Y-%m-%d")
+                    if ds in conteo_por_dia:
+                        conteo_por_dia[ds] += res.cantidad
         except Exception as e:
             logger.error(f"Error consultando actividad de retenciones: {e}")
 
