@@ -288,16 +288,32 @@ async def resumen_por_estado(
 ):
     """Obtiene resumen de documentos por estado"""
     
+    def normalizar_estado(estado_raw: Optional[str]) -> str:
+        if not estado_raw:
+            return "pendiente"
+        
+        e = estado_raw.lower().strip()
+        if "aceptada" in e or "aceptado" in e:
+            return "aceptado"
+        if "enviado" in e:
+            return "enviado"
+        if "pendiente" in e:
+            return "pendiente"
+        if "rechazado" in e or "rechazada" in e:
+            return "rechazado"
+        if "anulado" in e:
+            return "anulado"
+        if "error" in e or len(e) > 30: # Si es muy largo, probablemente sea un mensaje de error
+            return "error"
+        return e
+
+    resumen_map = {}
+    
     if tipo == "ventas":
         resultados = db.query(
             ARDocument.fe.label("estado"),
             func.count(ARDocument.Document).label("cantidad")
         ).group_by(ARDocument.fe).all()
-        
-        resumen = [
-            {"estado": r.estado or "pendiente", "cantidad": r.cantidad}
-            for r in resultados
-        ]
         
     elif tipo == "retenciones":
         resultados = db.query(
@@ -305,30 +321,30 @@ async def resumen_por_estado(
             func.count(APRetencion.Id).label("cantidad")
         ).group_by(APRetencion.status).all()
         
-        resumen = [
-            {"estado": r.estado or "pendiente", "cantidad": r.cantidad}
-            for r in resultados
-        ]
-        
     elif tipo == "guias":
         resultados = db.query(
             WHTransaction.envio_nube.label("estado"),
             func.count(WHTransaction.Transaction).label("cantidad")
         ).group_by(WHTransaction.envio_nube).all()
         
-        resumen = [
-            {"estado": r.estado or "pendiente", "cantidad": r.cantidad}
-            for r in resultados
-        ]
-        
     else:
         return ResponseBase(
             success=False,
             message="Tipo no válido. Use: ventas, retenciones, guias"
         )
+
+    for r in resultados:
+        est = normalizar_estado(r.estado)
+        resumen_map[est] = resumen_map.get(est, 0) + r.cantidad
+        
+    resumen = [
+        {"estado": est, "cantidad": cant}
+        for est, cant in resumen_map.items()
+    ]
     
     return ResponseBase(
         success=True,
         message=f"Resumen de {tipo} obtenido",
         data=resumen
     )
+
