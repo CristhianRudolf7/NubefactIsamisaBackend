@@ -29,13 +29,13 @@ async def obtener_estadisticas(
     # Estadísticas de Ventas
     ventas_total = db.query(func.count(ARDocument.Document)).scalar()
     ventas_enviadas = db.query(func.count(ARDocument.Document)).filter(
-        ARDocument.fe == "enviado"
+        ARDocument.nube_status_web == "enviado"
     ).scalar()
     ventas_pendientes = db.query(func.count(ARDocument.Document)).filter(
-        ARDocument.fe == None
+        ARDocument.nube_status_web == "pendiente"
     ).scalar()
     ventas_error = db.query(func.count(ARDocument.Document)).filter(
-        ARDocument.fe == "Error"
+        ARDocument.nube_status_web == "error"
     ).scalar()
     ventas_por_aprobar = db.query(func.count(ARDocument.Document)).filter(
         ARDocument.necesita_aprobacion == True
@@ -44,10 +44,10 @@ async def obtener_estadisticas(
     # Estadísticas de Retenciones
     retenciones_total = db.query(func.count(APRetencion.Id)).scalar()
     retenciones_enviadas = db.query(func.count(APRetencion.Id)).filter(
-        APRetencion.status == "enviado"
+        APRetencion.nube_status_web == "enviado"
     ).scalar()
     retenciones_pendientes = db.query(func.count(APRetencion.Id)).filter(
-        APRetencion.status == None
+        APRetencion.nube_status_web == "pendiente"
     ).scalar()
     retenciones_por_aprobar = db.query(func.count(APRetencion.Id)).filter(
         APRetencion.necesita_aprobacion == True
@@ -56,10 +56,10 @@ async def obtener_estadisticas(
     # Estadísticas de Guías
     guias_total = db.query(func.count(WHTransaction.Transaction)).scalar()
     guias_aceptadas = db.query(func.count(WHTransaction.Transaction)).filter(
-        WHTransaction.envio_nube == "aceptada"
+        WHTransaction.nube_status_web == "aceptado"
     ).scalar()
     guias_pendientes = db.query(func.count(WHTransaction.Transaction)).filter(
-        WHTransaction.envio_nube == None
+        WHTransaction.nube_status_web == "pendiente"
     ).scalar()
     guias_por_aprobar = db.query(func.count(WHTransaction.Transaction)).filter(
         WHTransaction.necesita_aprobacion == True
@@ -289,43 +289,30 @@ async def resumen_por_estado(
     """Obtiene resumen de documentos por estado"""
     
     def normalizar_estado(estado_raw: Optional[str]) -> str:
+        # Ahora que usamos nube_status_web, los datos ya vienen normalizados
         if not estado_raw:
             return "pendiente"
-        
-        e = estado_raw.lower().strip()
-        if "aceptada" in e or "aceptado" in e:
-            return "aceptado"
-        if "enviado" in e:
-            return "enviado"
-        if "pendiente" in e:
-            return "pendiente"
-        if "rechazado" in e or "rechazada" in e:
-            return "rechazado"
-        if "anulado" in e:
-            return "anulado"
-        if "error" in e or len(e) > 30: # Si es muy largo, probablemente sea un mensaje de error
-            return "error"
-        return e
+        return estado_raw.lower().strip()
 
     resumen_map = {}
     
     if tipo == "ventas":
         resultados = db.query(
-            ARDocument.fe.label("estado"),
+            ARDocument.nube_status_web.label("estado"),
             func.count(ARDocument.Document).label("cantidad")
-        ).group_by(ARDocument.fe).all()
+        ).group_by(ARDocument.nube_status_web).all()
         
     elif tipo == "retenciones":
         resultados = db.query(
-            APRetencion.status.label("estado"),
+            APRetencion.nube_status_web.label("estado"),
             func.count(APRetencion.Id).label("cantidad")
-        ).group_by(APRetencion.status).all()
+        ).group_by(APRetencion.nube_status_web).all()
         
     elif tipo == "guias":
         resultados = db.query(
-            WHTransaction.envio_nube.label("estado"),
+            WHTransaction.nube_status_web.label("estado"),
             func.count(WHTransaction.Transaction).label("cantidad")
-        ).group_by(WHTransaction.envio_nube).all()
+        ).group_by(WHTransaction.nube_status_web).all()
         
     else:
         return ResponseBase(

@@ -163,8 +163,10 @@ class DocumentService:
             # Para guías, SUNAT puede tardar en aceptar. Solo marcar como aceptada si SUNAT ya respondió
             if response.aceptada_por_sunat:
                 guia.envio_nube = "aceptada"
+                guia.nube_status_web = "aceptado"
             else:
                 guia.envio_nube = "enviado"  # Enviado a NubeFact, pendiente de aceptación SUNAT
+                guia.nube_status_web = "enviado"
 
             # Guardar respuesta
             nube_record = WHTransactionNube(
@@ -191,6 +193,7 @@ class DocumentService:
             self.db.add(nube_record)
         else:
             guia.envio_nube = "error"
+            guia.nube_status_web = "error"
             # Guardar error para mostrar en el detalle
             if response.errors:
                 guia.RejectionReason = ", ".join(response.errors)
@@ -253,6 +256,7 @@ class DocumentService:
         # Si la consulta fue exitosa y SUNAT aceptó, actualizar
         if response.success and response.aceptada_por_sunat:
             guia.envio_nube = "aceptada"
+            guia.nube_status_web = "aceptado"
             guia.RejectionReason = None
             
             # Actualizar o crear registro de respuesta
@@ -348,10 +352,13 @@ class DocumentService:
         if response.success:
             if response.aceptada_por_sunat:
                 retencion.status = "aceptada"
+                retencion.nube_status_web = "aceptado"
             else:
                 retencion.status = "enviado"
+                retencion.nube_status_web = "enviado"
         else:
             retencion.status = "error"
+            retencion.nube_status_web = "error"
         
         # Guardar respuesta (tanto exitosa como con errores)
         error_str = ", ".join(response.errors) if response.errors else None
@@ -535,10 +542,13 @@ class DocumentService:
         if response.success:
             if response.aceptada_por_sunat:
                 documento.fe = "aceptada"
+                documento.nube_status_web = "aceptado"
             else:
                 documento.fe = "enviado"
+                documento.nube_status_web = "enviado"
         else:
             documento.fe = "error"
+            documento.nube_status_web = "error"
         
         # Guardar respuesta (tanto exitosa como con errores)
         error_str = ", ".join(response.errors) if response.errors else None

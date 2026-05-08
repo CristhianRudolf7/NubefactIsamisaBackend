@@ -24,6 +24,7 @@ class APRetencion(Base):
     status = Column(String(20))
     necesita_aprobacion = Column(Boolean, default=False)
     aprobacion_usuario = Column(String(50))
+    nube_status_web = Column(String(20), default="pendiente")
     
     # Relaciones
     detalles = relationship("APRetencionDetail", back_populates="retencion")

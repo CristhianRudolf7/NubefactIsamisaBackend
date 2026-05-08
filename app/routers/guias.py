@@ -571,6 +571,7 @@ async def anular_guia(
     
     if response.success:
         guia.envio_nube = "anulado"
+        guia.nube_status_web = "anulado"
         guia.XLastUser = usuario
         guia.XLastDate = now_peru().timestamp()
         db.commit()

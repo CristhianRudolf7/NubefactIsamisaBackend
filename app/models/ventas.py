@@ -176,6 +176,7 @@ class ARDocument(Base):
     duedate2 = Column(DateTime)
     necesita_aprobacion = Column(Boolean, default=False)
     aprobacion_usuario = Column(String(50))
+    nube_status_web = Column(String(20), default="pendiente")
     
     # Relación con detalles
     detalles = relationship("ARDocumentDetail", back_populates="documento")
