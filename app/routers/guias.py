@@ -96,6 +96,7 @@ async def listar_guias(
                     "Transaction": g.Transaction,
                     "DocumentSerie": g.DocumentSerie,
                     "DocumentNo": g.DocumentNo,
+                    "fechaTraslado": g.TransactionDate,
                     "TargetPersonRUC": g.TargetPersonRUC,
                     "TargetPersonName": g.TargetPersonName,
                     "TargetAddress": g.TargetAddress,
