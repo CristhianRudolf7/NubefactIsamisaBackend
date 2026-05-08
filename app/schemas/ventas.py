@@ -43,6 +43,7 @@ class DocumentoVentaBase(BaseModel):
     AmountTaxLo: float
     AmountTotalLo: float
     fe: Optional[str] = None
+    nube_status_web: Optional[str] = None
     necesita_aprobacion: Optional[bool] = False
     aprobacion_usuario: Optional[str] = None
 

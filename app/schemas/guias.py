@@ -31,6 +31,7 @@ class GuiaRemisionBase(BaseModel):
     Driver: Optional[str] = None
     LicenciaConducir: Optional[str] = None
     envio_nube: Optional[str] = None
+    nube_status_web: Optional[str] = None
     Status: Optional[str] = None
     necesita_aprobacion: Optional[bool] = False
     aprobacion_usuario: Optional[str] = None
