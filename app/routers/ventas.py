@@ -182,7 +182,7 @@ async def listar_documentos(
                     "DocumentType": d.DocumentType,
                     "VendorRUC": d.VendorRUC,
                     "VendorName": d.VendorName,
-                    "fechaEmision": d.DocumentDate,
+                    "DocumentDate": d.DocumentDate,
                     "AmountTotalLo": d.AmountTotalLo,
                     "DocumentCurrency": d.DocumentCurrency,
                     "nube_status_web": d.nube_status_web,

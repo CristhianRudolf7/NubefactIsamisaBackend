@@ -114,7 +114,7 @@ async def listar_retenciones(
                     "Numero": r.Numero,
                     "VendorRuc": r.VendorRuc,
                     "VendorName": r.VendorName,
-                    "fechaEmision": r.DocumentDate,
+                    "DocumentDate": r.DocumentDate,
                     "Tasa": r.Tasa,
                     "TotalRetenido": r.TotalRetenido,
                     "TotalPagado": r.TotalPagado,
