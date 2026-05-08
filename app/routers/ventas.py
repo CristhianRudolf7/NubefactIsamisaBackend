@@ -77,14 +77,7 @@ async def listar_documentos(
         query = query.filter(ARDocument.DocumentNo == numero)
     if estado:
         estado_lower = estado.lower()
-        if estado_lower == 'pendiente':
-            query = query.filter(or_(ARDocument.fe == None, ARDocument.fe == '', func.lower(ARDocument.fe) == 'pendiente'))
-        elif estado_lower == 'aceptado':
-            query = query.filter(func.lower(ARDocument.fe).in_(['aceptado', 'aceptada']))
-        elif estado_lower == 'rechazado':
-            query = query.filter(func.lower(ARDocument.fe).in_(['rechazado', 'rechazada']))
-        else:
-            query = query.filter(func.lower(ARDocument.fe) == estado_lower)
+        query = query.filter(func.lower(ARDocument.nube_status_web) == estado_lower)
     if ruc_cliente:
         query = query.filter(ARDocument.VendorRUC == ruc_cliente)
     if tipo_documento:
@@ -139,7 +132,7 @@ async def listar_documentos(
     # Paginación (SQL Server requiere ORDER BY para OFFSET)
     total = query.count()
     offset = (page - 1) * page_size
-    documentos = query.order_by(ARDocument.Document.desc()).offset(offset).limit(page_size).all()
+    documentos = query.order_by(ARDocument.DocumentDate.desc(), ARDocument.Document.desc()).offset(offset).limit(page_size).all()
     
     # Obtener errores de NubeFact y hash para documentos
     errores_nube = {}
@@ -147,7 +140,7 @@ async def listar_documentos(
     series_numeros = [(d.DocumentSerie, d.DocumentNo, d.RejectionReason, d.Comments) for d in documentos if d.fe and d.fe.lower() in ['error', 'rechazado']]
     # Obtener hash para todos los documentos enviados
     for d in documentos:
-        if d.fe and d.fe.lower() not in ['pendiente', '', None]:
+        if d.nube_status_web and d.nube_status_web.lower() not in ['pendiente', 'error', 'anulado']:
             nube_resp = db.query(ARFENube).filter(
                 ARFENube.serie == d.DocumentSerie,
                 ARFENube.numero == d.DocumentNo
@@ -192,7 +185,7 @@ async def listar_documentos(
                     "DocumentDate": d.DocumentDate,
                     "AmountTotalLo": d.AmountTotalLo,
                     "DocumentCurrency": d.DocumentCurrency,
-                    "fe": d.fe,
+                    "fe": d.nube_status_web,
                     "Status": d.Status,
                     "error_mensaje": errores_nube.get((d.DocumentSerie, d.DocumentNo)),
                     "codigo_hash": hashes_nube.get((d.DocumentSerie, d.DocumentNo)),
@@ -227,7 +220,7 @@ async def obtener_documento(
     
     # Obtener mensaje de error si existe
     error_mensaje = None
-    if documento.fe and documento.fe.lower() in ['error', 'rechazado']:
+    if documento.nube_status_web and documento.nube_status_web.lower() in ['error', 'rechazado']:
         if nube_response:
             error_mensaje = nube_response.sunat_soap_error or nube_response.error or nube_response.sunat_description or None
         if not error_mensaje:
@@ -257,7 +250,7 @@ async def obtener_documento(
                 "PlazoDias": documento.PlazoDias,
                 "FlagSaleType": documento.FlagSaleType,
                 "CondicionPago": documento.CondicionPago,
-                "fe": documento.fe,
+                "fe": documento.nube_status_web,
                 "Status": documento.Status,
                 "error_mensaje": error_mensaje,
             },
@@ -707,6 +700,7 @@ async def anular_documento(
     
     if response.success:
         documento.fe = "anulado"
+        documento.nube_status_web = "anulado"
         documento.XLastUser = usuario
         documento.XLastDate = now_peru().timestamp()
         db.commit()

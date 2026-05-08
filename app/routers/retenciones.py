@@ -74,21 +74,14 @@ async def listar_retenciones(
         query = query.filter(APRetencion.Numero == numero)
     if estado:
         estado_lower = estado.lower()
-        if estado_lower == 'pendiente':
-            query = query.filter(or_(APRetencion.status == None, APRetencion.status == '', func.lower(APRetencion.status) == 'pendiente'))
-        elif estado_lower == 'aceptado':
-            query = query.filter(func.lower(APRetencion.status).in_(['aceptado', 'aceptada']))
-        elif estado_lower == 'rechazado':
-            query = query.filter(func.lower(APRetencion.status).in_(['rechazado', 'rechazada']))
-        else:
-            query = query.filter(func.lower(APRetencion.status) == estado_lower)
+        query = query.filter(func.lower(APRetencion.nube_status_web) == estado_lower)
     if ruc_proveedor:
         query = query.filter(APRetencion.VendorRuc == ruc_proveedor)
     
     # Paginación (SQL Server requiere ORDER BY para OFFSET)
     total = query.count()
     offset = (page - 1) * page_size
-    retenciones = query.order_by(APRetencion.Id.desc()).offset(offset).limit(page_size).all()
+    retenciones = query.order_by(APRetencion.DocumentDate.desc(), APRetencion.Id.desc()).offset(offset).limit(page_size).all()
     
     # Obtener errores para retenciones con estado error/rechazado
     errores_status = {}
@@ -125,7 +118,7 @@ async def listar_retenciones(
                     "Tasa": r.Tasa,
                     "TotalRetenido": r.TotalRetenido,
                     "TotalPagado": r.TotalPagado,
-                    "status": r.status,
+                    "status": r.nube_status_web,
                     "error_mensaje": errores_status.get(r.Id),
                     "necesita_aprobacion": r.necesita_aprobacion,
                     "aprobacion_usuario": r.aprobacion_usuario,
@@ -157,7 +150,7 @@ async def obtener_retencion(
     
     # Obtener mensaje de error si existe
     error_mensaje = None
-    if retencion.status and retencion.status.lower() in ['error', 'rechazado']:
+    if retencion.nube_status_web and retencion.nube_status_web.lower() in ['error', 'rechazado']:
         if ultimo_estado:
             error_mensaje = ultimo_estado.error or ultimo_estado.Soap or ultimo_estado.Descripcion or "No hay detalles del error disponibles"
         else:
@@ -179,7 +172,7 @@ async def obtener_retencion(
                 "TotalRetenido": retencion.TotalRetenido,
                 "TotalPagado": retencion.TotalPagado,
                 "Obs": retencion.Obs,
-                "status": retencion.status,
+                "status": retencion.nube_status_web,
                 "error_mensaje": error_mensaje,
             },
             "detalles": [
@@ -609,6 +602,7 @@ async def anular_retencion(
     
     if response.success:
         retencion.status = "anulado"
+        retencion.nube_status_web = "anulado"
         retencion.XlastUser = usuario
         retencion.XlastDate = now_peru().timestamp()
         db.commit()

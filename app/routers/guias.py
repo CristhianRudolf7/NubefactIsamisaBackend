@@ -75,21 +75,14 @@ async def listar_guias(
         query = query.filter(WHTransaction.DocumentNo == numero)
     if estado:
         estado_lower = estado.lower()
-        if estado_lower == 'pendiente':
-            query = query.filter(or_(WHTransaction.envio_nube == None, WHTransaction.envio_nube == '', func.lower(WHTransaction.envio_nube) == 'pendiente'))
-        elif estado_lower == 'aceptado':
-            query = query.filter(func.lower(WHTransaction.envio_nube).in_(['aceptado', 'aceptada']))
-        elif estado_lower == 'rechazado':
-            query = query.filter(func.lower(WHTransaction.envio_nube).in_(['rechazado', 'rechazada']))
-        else:
-            query = query.filter(func.lower(WHTransaction.envio_nube) == estado_lower)
+        query = query.filter(func.lower(WHTransaction.nube_status_web) == estado_lower)
     if ruc_destinatario:
         query = query.filter(WHTransaction.TargetPersonRUC == ruc_destinatario)
     
     # Paginación (SQL Server requiere ORDER BY para OFFSET)
     total = query.count()
     offset = (page - 1) * page_size
-    guias = query.order_by(WHTransaction.Transaction.desc()).offset(offset).limit(page_size).all()
+    guias = query.order_by(WHTransaction.TransactionDate.desc(), WHTransaction.Transaction.desc()).offset(offset).limit(page_size).all()
     
     return ResponseBase(
         success=True,
@@ -107,9 +100,9 @@ async def listar_guias(
                     "TargetPersonName": g.TargetPersonName,
                     "TargetAddress": g.TargetAddress,
                     "MotivoTraslado": g.MotivoTraslado,
-                    "envio_nube": g.envio_nube,
+                    "envio_nube": g.nube_status_web,
                     "Status": g.Status,
-                    "error_mensaje": g.RejectionReason or g.Comments or "No hay detalles del error disponibles" if g.envio_nube and g.envio_nube.lower() in ['error', 'rechazado'] else None,
+                    "error_mensaje": g.RejectionReason or g.Comments or "No hay detalles del error disponibles" if g.nube_status_web and g.nube_status_web.lower() in ['error', 'rechazado'] else None,
                     "necesita_aprobacion": g.necesita_aprobacion,
                     "aprobacion_usuario": g.aprobacion_usuario,
                 }
@@ -135,7 +128,7 @@ async def obtener_guia(
     
     # Obtener mensaje de error si existe
     error_mensaje = None
-    if guia.envio_nube and guia.envio_nube.lower() in ['error', 'rechazado']:
+    if guia.nube_status_web and guia.nube_status_web.lower() in ['error', 'rechazado']:
         error_mensaje = guia.RejectionReason or guia.Comments or "No hay detalles del error disponibles"
     
     return ResponseBase(
