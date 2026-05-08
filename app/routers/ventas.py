@@ -132,7 +132,11 @@ async def listar_documentos(
     # Paginación (SQL Server requiere ORDER BY para OFFSET)
     total = query.count()
     offset = (page - 1) * page_size
-    documentos = query.order_by(ARDocument.DocumentDate.desc(), ARDocument.Document.desc()).offset(offset).limit(page_size).all()
+    documentos = query.order_by(
+        text("CASE WHEN DocumentDate >= 36526 AND DocumentDate <= 73050 THEN 0 ELSE 1 END"),
+        ARDocument.DocumentDate.desc(),
+        ARDocument.Document.desc()
+    ).offset(offset).limit(page_size).all()
     
     # Obtener errores de NubeFact y hash para documentos
     errores_nube = {}

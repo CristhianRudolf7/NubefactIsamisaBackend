@@ -81,7 +81,11 @@ async def listar_retenciones(
     # Paginación (SQL Server requiere ORDER BY para OFFSET)
     total = query.count()
     offset = (page - 1) * page_size
-    retenciones = query.order_by(APRetencion.DocumentDate.desc(), APRetencion.Id.desc()).offset(offset).limit(page_size).all()
+    retenciones = query.order_by(
+        text("CASE WHEN DocumentDate >= '2000-01-01' AND DocumentDate <= '2100-12-31' THEN 0 ELSE 1 END"),
+        APRetencion.DocumentDate.desc(),
+        APRetencion.Id.desc()
+    ).offset(offset).limit(page_size).all()
     
     # Obtener errores para retenciones con estado error/rechazado
     errores_status = {}

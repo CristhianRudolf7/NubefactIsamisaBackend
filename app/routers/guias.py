@@ -82,7 +82,11 @@ async def listar_guias(
     # Paginación (SQL Server requiere ORDER BY para OFFSET)
     total = query.count()
     offset = (page - 1) * page_size
-    guias = query.order_by(WHTransaction.TransactionDate.desc(), WHTransaction.Transaction.desc()).offset(offset).limit(page_size).all()
+    guias = query.order_by(
+        text("CASE WHEN TransactionDate >= 36526 AND TransactionDate <= 73050 THEN 0 ELSE 1 END"),
+        WHTransaction.TransactionDate.desc(),
+        WHTransaction.Transaction.desc()
+    ).offset(offset).limit(page_size).all()
     
     return ResponseBase(
         success=True,
