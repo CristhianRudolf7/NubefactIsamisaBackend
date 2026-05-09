@@ -1,0 +1,147 @@
+erDiagram
+    USERS ||--o{ AUDITORIA : "realiza"
+    USERS {
+        int id PK
+        string dni
+        string nombre
+        string celular
+        string password_hash
+        string rol
+        boolean is_active
+        boolean recibir_notificaciones
+        boolean puede_acceder_ventas
+        boolean puede_acceder_guias
+        boolean puede_acceder_retenciones
+        datetime created_at
+        datetime updated_at
+    }
+
+    AR_DOCUMENT ||--o{ AR_DOCUMENTDETAIL : "tiene"
+    AR_DOCUMENT ||--o| AR_FE_NUBE : "respuesta_sunat"
+    AR_DOCUMENT {
+        string Document PK
+        string DocumentNo
+        string DocumentSerie
+        string Company
+        string Vendor
+        string VendorRUC
+        datetime DocumentDate
+        float AmountTotalLo
+        string fe
+        string nube_status_web
+        boolean necesita_aprobacion
+        string aprobacion_usuario
+    }
+
+    AR_DOCUMENTDETAIL {
+        string Document FK
+        int Line PK
+        string Item
+        string ItemCode
+        string Description
+        float Quantity
+        float Price
+        float Total
+    }
+
+    AR_FE_NUBE {
+        int id PK
+        string serie
+        string numero
+        string enlace_del_pdf
+        string enlace_del_xml
+        string aceptada_por_sunat
+        string sunat_description
+        float fecha_envio
+    }
+
+    WH_TRANSACTION ||--o{ WH_TRANSACTIONDETAIL : "tiene"
+    WH_TRANSACTION ||--o| WH_TRANSACTION_NUBE : "respuesta_sunat"
+    WH_TRANSACTION {
+        string Transaction PK
+        string DocumentSerie
+        string DocumentNo
+        datetime TransactionDate
+        string Driver
+        string VehicleID
+        string Transportista
+        string envio_nube
+        string nube_status_web
+        boolean necesita_aprobacion
+        string aprobacion_usuario
+    }
+
+    WH_TRANSACTIONDETAIL {
+        string Transaction FK
+        int Line PK
+        string Item
+        string ItemCode
+        string ItemDescription
+        float Quantity
+        string Unit
+    }
+
+    WH_TRANSACTION_NUBE {
+        int id PK
+        string TransactionId FK
+        string serie
+        string numero
+        string enlace_del_pdf
+        string aceptada_por_sunat
+        string sunat_description
+    }
+
+    AP_RETENCION ||--o{ AP_RETENCIONDETAIL : "tiene"
+    AP_RETENCION ||--o{ AP_RETENCION_STATUS : "estados"
+    AP_RETENCION {
+        int Id PK
+        string Serie
+        string Numero
+        string VendorRuc
+        string VendorName
+        datetime DocumentDate
+        float TotalRetenido
+        float TotalPagado
+        string status
+        string nube_status_web
+        boolean necesita_aprobacion
+        string aprobacion_usuario
+    }
+
+    AP_RETENCIONDETAIL {
+        int ID PK
+        int Retencion FK
+        string DRserie
+        string DRnumero
+        float Retenido
+        float Pagado
+    }
+
+    AP_RETENCION_STATUS {
+        int id PK
+        int Retencion FK
+        string Status
+        string Pdf
+        string Xml
+        string Descripcion
+    }
+
+    AUDITORIA {
+        int id PK
+        string tabla
+        string registro_id
+        string accion
+        string datos_anteriores
+        string datos_nuevos
+        string usuario
+        datetime fecha
+        string ip
+    }
+
+    SY_CONFIGURACION_ENVIO {
+        int id PK
+        string tipo_documento
+        string modo
+        boolean activo
+        int intervalo_segundos
+    }
