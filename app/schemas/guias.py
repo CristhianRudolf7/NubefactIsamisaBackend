@@ -19,7 +19,7 @@ class GuiaRemisionBase(BaseModel):
     Transaction: str
     DocumentSerie: str
     DocumentNo: str
-    TransactionDate: Optional[float] = None
+    TransactionDate: Optional[datetime] = None
     TargetPersonRUC: Optional[str] = None
     TargetPersonName: Optional[str] = None
     TargetAddress: Optional[str] = None

@@ -32,7 +32,7 @@ class RetencionBase(BaseModel):
     VendorRuc: str
     VendorName: str
     VendorAddress: str
-    DocumentDate: Optional[float] = None
+    DocumentDate: Optional[datetime] = None
     Tasa: int
     TotalRetenido: float
     TotalPagado: float
@@ -46,7 +46,7 @@ class RetencionSchema(RetencionBase):
     """Schema completo de retención"""
     Obs: Optional[str] = None
     XlastUser: Optional[str] = None
-    XlastDate: Optional[float] = None
+    XlastDate: Optional[datetime] = None
     detalles: List[RetencionItem] = []
 
     class Config:

@@ -35,8 +35,8 @@ class DocumentoVentaBase(BaseModel):
     VendorRUC: str
     VendorName: str
     VendorAddress: str
-    DocumentDate: Optional[float] = None
-    DueDate: Optional[float] = None
+    DocumentDate: Optional[datetime] = None
+    DueDate: Optional[datetime] = None
     DocumentCurrency: str = "LO"
     ExchangeRate: Optional[float] = None
     AmountNetLo: float
