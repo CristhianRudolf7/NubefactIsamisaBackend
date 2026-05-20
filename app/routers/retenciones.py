@@ -295,7 +295,7 @@ async def procesar_envio_masivo_retenciones(ids: List[str], usuario: str, db: Se
                         Status="error",
                         Descripcion=result.get("message", "Error al enviar"),
                         XlastUser=usuario,
-                        XlastDate=now_peru().timestamp(),
+                        XlastDate=now_peru(),
                     )
                     db.add(status_record)
                     db.commit()
@@ -315,7 +315,7 @@ async def procesar_envio_masivo_retenciones(ids: List[str], usuario: str, db: Se
                         Status="error",
                         error=error_msg,
                         XlastUser=usuario,
-                        XlastDate=now_peru().timestamp(),
+                        XlastDate=now_peru(),
                     )
                     db.add(status_record)
                     db.commit()
@@ -418,7 +418,7 @@ async def actualizar_retencion(
                         detalle.Pagado = det_data["Pagado"]
     
     retencion.XlastUser = usuario
-    retencion.XlastDate = now_peru().timestamp()
+    retencion.XlastDate = now_peru()
     
     # Lógica de aprobación: Trabajadores requieren aprobación, Admins no.
     if current_user.rol == UserRole.TRABAJADOR:
@@ -609,7 +609,7 @@ async def anular_retencion(
         retencion.status = "anulado"
         retencion.nube_status_web = "anulado"
         retencion.XlastUser = usuario
-        retencion.XlastDate = now_peru().timestamp()
+        retencion.XlastDate = now_peru()
         db.commit()
     
     # Registrar auditoría

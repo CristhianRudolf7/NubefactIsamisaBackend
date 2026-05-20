@@ -505,7 +505,7 @@ async def actualizar_documento(
     
     
     documento.XLastUser = usuario
-    documento.XLastDate = now_peru().timestamp()
+    documento.XLastDate = now_peru()
     
     # Lógica de aprobación: Trabajadores requieren aprobación, Admins no.
     if current_user.rol == UserRole.TRABAJADOR:
@@ -707,7 +707,7 @@ async def anular_documento(
         documento.fe = "anulado"
         documento.nube_status_web = "anulado"
         documento.XLastUser = usuario
-        documento.XLastDate = now_peru().timestamp()
+        documento.XLastDate = now_peru()
         db.commit()
     
     # Registrar auditoría

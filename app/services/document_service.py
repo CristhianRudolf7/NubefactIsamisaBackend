@@ -375,7 +375,7 @@ class DocumentService:
             Soap=response.sunat_soap_error,
             error=error_str,
             XlastUser=usuario,
-            XlastDate=now_peru().timestamp(),
+            XlastDate=now_peru(),
         )
         self.db.add(status_record)
         

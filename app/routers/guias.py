@@ -382,7 +382,7 @@ async def actualizar_guia(
         guia.Driver = f"{apellido} {nombre}".strip()
     
     guia.XLastUser = usuario
-    guia.XLastDate = now_peru().timestamp()
+    guia.XLastDate = now_peru()
     
     # Lógica de aprobación: Trabajadores requieren aprobación, Admins no.
     if current_user.rol == UserRole.TRABAJADOR:
@@ -571,7 +571,7 @@ async def anular_guia(
         guia.envio_nube = "anulado"
         guia.nube_status_web = "anulado"
         guia.XLastUser = usuario
-        guia.XLastDate = now_peru().timestamp()
+        guia.XLastDate = now_peru()
         db.commit()
     
     # Registrar auditoría

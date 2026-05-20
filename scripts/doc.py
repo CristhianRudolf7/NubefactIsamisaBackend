@@ -99,7 +99,7 @@ def create_venta(db: Session, doc_type_name, type_code, ruc, name, suffix=""):
         fe="", # Pendiente
         typeDocSun=type_code,
         XLastUser="GENERATOR",
-        XLastDate=datetime.now().timestamp()
+        XLastDate=datetime.now()
     )
     db.add(doc)
     db.flush()
@@ -116,7 +116,7 @@ def create_venta(db: Session, doc_type_name, type_code, ruc, name, suffix=""):
         TotalTaxLo=18.0,   # IGV línea
         Total=118.0,  # Total línea
         XLastUser="GENERATOR",
-        XLastDate=datetime.now().timestamp()
+        XLastDate=datetime.now()
     )
     db.add(detail)
     return doc_id
@@ -139,7 +139,7 @@ def create_retencion(db: Session, ruc, name, suffix=""):
         TotalPagado=970.0,
         status="pendiente",
         XlastUser="GENERATOR",
-        XlastDate=datetime.now().timestamp()
+        XlastDate=datetime.now()
     )
     db.add(ret)
     db.flush()
@@ -191,7 +191,7 @@ def create_guia(db: Session, ruc, name, suffix=""):
         DriverId="12345678",
         LicenciaConducir="Q12345678",
         XLastUser="GENERATOR",
-        XLastDate=datetime.now().timestamp()
+        XLastDate=datetime.now()
     )
     db.add(guia)
     db.flush()
@@ -204,7 +204,7 @@ def create_guia(db: Session, ruc, name, suffix=""):
         Quantity=10.0,
         Unit="NIU",
         XLastUser="GENERATOR",
-        XLastDate=datetime.now().timestamp()
+        XLastDate=datetime.now()
     )
     db.add(detail)
     return f"{serie}-{numero}"
