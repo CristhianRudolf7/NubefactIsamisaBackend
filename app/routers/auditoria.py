@@ -30,7 +30,7 @@ async def listar_auditoria(
     fecha_fin: Optional[str] = Query(None),
     registro_id: Optional[str] = Query(None),
     page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
+    page_size: int = Query(20, ge=1, le=500),
 ):
     """Lista registros de auditoría con filtros y paginación (solo admin)"""
     
