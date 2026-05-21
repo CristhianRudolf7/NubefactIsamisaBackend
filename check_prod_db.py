@@ -12,38 +12,16 @@ def run_check():
     try:
         engine = create_engine(settings.database_url)
         with engine.connect() as conn:
-            # Count AR_Document by year
-            print("--- AR_Document Years ---")
-            res_ar = conn.execute(text("""
-                SELECT YEAR(DocumentDate) as anio, COUNT(*) as cant 
+            # Query documents around May 14 to May 16
+            print("--- AR_Document Samples (May 12 - May 18) ---")
+            res = conn.execute(text("""
+                SELECT TOP 15 Document, DocumentSerie, DocumentNo, DocumentDate, RegisterDate 
                 FROM AR_Document 
-                GROUP BY YEAR(DocumentDate) 
-                ORDER BY anio DESC
+                WHERE DocumentDate >= '2026-05-12 00:00:00' AND DocumentDate <= '2026-05-18 23:59:59'
+                ORDER BY DocumentDate ASC
             """)).fetchall()
-            for row in res_ar:
-                print(f"Year: {row[0]} | Count: {row[1]}")
-                
-            # Count WH_Transaction by year
-            print("\n--- WH_Transaction Years ---")
-            res_wh = conn.execute(text("""
-                SELECT YEAR(TransactionDate) as anio, COUNT(*) as cant 
-                FROM WH_Transaction 
-                GROUP BY YEAR(TransactionDate) 
-                ORDER BY anio DESC
-            """)).fetchall()
-            for row in res_wh:
-                print(f"Year: {row[0]} | Count: {row[1]}")
-                
-            # Query the latest 5 guides in 2026
-            print("\n--- Latest 5 guides in year 2026 ---")
-            res_guides = conn.execute(text("""
-                SELECT TOP 5 [Transaction], DocumentNo, DocumentSerie, TransactionDate, FechaTraslado 
-                FROM WH_Transaction 
-                WHERE TransactionDate >= '2026-01-01' AND TransactionDate < '2027-01-01'
-                ORDER BY TransactionDate DESC
-            """)).fetchall()
-            for row in res_guides:
-                print(f"Guia: {row[2]}-{row[1]} | TransactionDate: {row[3]} | FechaTraslado: {row[4]}")
+            for row in res:
+                print(f"Doc: {row[1]}-{row[2]} | DocumentDate: {row[3]} | RegisterDate: {row[4]}")
                 
     except Exception as e:
         print("Database connection error:", e)
