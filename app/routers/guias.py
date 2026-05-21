@@ -52,7 +52,7 @@ async def listar_guias(
     estado: Optional[str] = Query(None, description="Estado del documento"),
     ruc_destinatario: Optional[str] = Query(None, description="RUC del destinatario"),
     page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=500)
+    page_size: int = Query(20, ge=1, le=10000)
 ):
     query = db.query(WHTransaction)
     

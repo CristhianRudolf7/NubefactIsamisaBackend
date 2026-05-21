@@ -54,7 +54,7 @@ async def listar_documentos(
     ruc_cliente: Optional[str] = Query(None, description="RUC del cliente"),
     tipo_documento: Optional[str] = Query(None, description="Tipo de documento"),
     page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=500)
+    page_size: int = Query(20, ge=1, le=10000)
 ):
     query = db.query(ARDocument)
     
