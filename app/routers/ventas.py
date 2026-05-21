@@ -36,8 +36,8 @@ def date_to_excel(date_str: str) -> float:
             # Fallback a solo fecha
             dt = datetime.strptime(date_str, "%d-%m-%Y")
             
-        # Ajustamos a 1899-12-31 como base para coincidir con el almacenamiento de la BD
-        excel_epoch = datetime(1899, 12, 31)
+        # Ajustamos a 1899-12-30 como base para coincidir con el almacenamiento de la BD
+        excel_epoch = datetime(1899, 12, 30)
         delta = dt - excel_epoch
         # delta.total_seconds() / (24 * 3600) da la fracción exacta de días
         return float(delta.total_seconds() / (24 * 3600))
