@@ -29,6 +29,7 @@ router = APIRouter(prefix="/ventas", tags=["Documentos de Venta"])
 def parse_date_filter(date_str: str, is_end_date: bool = False) -> datetime:
     """Convierte string dd-mm-YYYY [HH:mm] a datetime"""
     try:
+        date_str = date_str.replace('+', ' ').strip()
         try:
             dt = datetime.strptime(date_str, "%d-%m-%Y %H:%M")
         except ValueError:
