@@ -26,23 +26,19 @@ from .auth import require_ventas_access, require_admin
 router = APIRouter(prefix="/ventas", tags=["Documentos de Venta"])
 
 
-def date_to_excel(date_str: str) -> float:
-    """Convierte string dd-mm-YYYY [HH:mm] a float de Excel"""
+def parse_date_filter(date_str: str, is_end_date: bool = False) -> datetime:
+    """Convierte string dd-mm-YYYY [HH:mm] a datetime"""
     try:
-        # Intentar con fecha y hora
         try:
             dt = datetime.strptime(date_str, "%d-%m-%Y %H:%M")
         except ValueError:
-            # Fallback a solo fecha
             dt = datetime.strptime(date_str, "%d-%m-%Y")
-            
-        # Ajustamos a 1899-12-30 como base para coincidir con el almacenamiento de la BD
-        excel_epoch = datetime(1899, 12, 30)
-        delta = dt - excel_epoch
-        # delta.total_seconds() / (24 * 3600) da la fracción exacta de días
-        return float(delta.total_seconds() / (24 * 3600))
+            if is_end_date:
+                # Si es fecha fin y no tiene hora, llevar al final del día
+                dt = dt.replace(hour=23, minute=59, second=59, microsecond=999999)
+        return dt
     except:
-        return 0.0
+        return datetime.min if not is_end_date else datetime.max
 
 
 @router.get("/", response_model=ResponseBase)
@@ -62,14 +58,9 @@ async def listar_documentos(
     query = db.query(ARDocument)
     
     if fecha_inicio:
-        query = query.filter(ARDocument.DocumentDate >= date_to_excel(fecha_inicio))
+        query = query.filter(ARDocument.DocumentDate >= parse_date_filter(fecha_inicio, is_end_date=False))
     if fecha_fin:
-        # Si la fecha_fin solo tiene fecha (10 caracteres), sumar el día completo
-        # Si tiene hora, usar el valor exacto
-        excel_fin = date_to_excel(fecha_fin)
-        if len(fecha_fin) <= 10:
-            excel_fin += 0.99999
-        query = query.filter(ARDocument.DocumentDate <= excel_fin)
+        query = query.filter(ARDocument.DocumentDate <= parse_date_filter(fecha_fin, is_end_date=True))
     
     if serie:
         query = query.filter(ARDocument.DocumentSerie == serie)
