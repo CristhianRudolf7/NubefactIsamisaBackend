@@ -1,4 +1,9 @@
 import sys
+import os
+
+# Ajustar sys.path para que reconozca el módulo 'app' desde la raíz del proyecto
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from sqlalchemy import text, inspect
 from app.database import engine
 from app.models.ventas import ARDocument, ARDocumentDetail
