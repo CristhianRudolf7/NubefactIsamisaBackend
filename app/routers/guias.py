@@ -34,8 +34,8 @@ def parse_date_filter(date_str: str, is_end_date: bool = False) -> datetime:
         except ValueError:
             dt = datetime.strptime(date_str, "%d-%m-%Y")
             if is_end_date:
-                # Si es fecha fin y no tiene hora, llevar al final del día
-                dt = dt.replace(hour=23, minute=59, second=59, microsecond=999999)
+                # Si es fecha fin y no tiene hora, llevar al final del día (sin microsegundos para evitar redondeo en SQL Server)
+                dt = dt.replace(hour=23, minute=59, second=59, microsecond=0)
         return dt
     except:
         return datetime.min if not is_end_date else datetime.max
