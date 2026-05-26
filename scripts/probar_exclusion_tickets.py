@@ -21,7 +21,7 @@ except ImportError:
 from app.config import get_settings
 from app.database import SessionLocal
 from app.models.ventas import ARDocument
-from app.main import app
+from main import app
 
 def test_db_queries():
     print("\n" + "=" * 80)
