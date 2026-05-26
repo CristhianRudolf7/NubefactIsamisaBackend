@@ -27,18 +27,22 @@ async def obtener_estadisticas(
     """Obtiene estadísticas generales del dashboard"""
     
     # Estadísticas de Ventas
-    ventas_total = db.query(func.count(ARDocument.Document)).scalar()
+    ventas_total = db.query(func.count(ARDocument.Document)).filter(~ARDocument.Document.like('T%')).scalar()
     ventas_enviadas = db.query(func.count(ARDocument.Document)).filter(
-        ARDocument.nube_status_web == "enviado"
+        ARDocument.nube_status_web == "enviado",
+        ~ARDocument.Document.like('T%')
     ).scalar()
     ventas_pendientes = db.query(func.count(ARDocument.Document)).filter(
-        ARDocument.nube_status_web == "pendiente"
+        ARDocument.nube_status_web == "pendiente",
+        ~ARDocument.Document.like('T%')
     ).scalar()
     ventas_error = db.query(func.count(ARDocument.Document)).filter(
-        ARDocument.nube_status_web == "error"
+        ARDocument.nube_status_web == "error",
+        ~ARDocument.Document.like('T%')
     ).scalar()
     ventas_por_aprobar = db.query(func.count(ARDocument.Document)).filter(
-        ARDocument.necesita_aprobacion == True
+        ARDocument.necesita_aprobacion == True,
+        ~ARDocument.Document.like('T%')
     ).scalar()
     
     # Estadísticas de Retenciones
@@ -118,7 +122,8 @@ async def actividad_semanal(
                 func.count(ARDocument.Document).label("cantidad")
             ).filter(
                 ARDocument.DocumentDate >= dias[0],
-                ARDocument.DocumentDate < (hoy + timedelta(days=1))
+                ARDocument.DocumentDate < (hoy + timedelta(days=1)),
+                ~ARDocument.Document.like('T%')
             ).group_by(cast(ARDocument.DocumentDate, Date)).all()
             
             for res in ventas_raw:
@@ -300,7 +305,7 @@ async def resumen_por_estado(
         resultados = db.query(
             ARDocument.nube_status_web.label("estado"),
             func.count(ARDocument.Document).label("cantidad")
-        ).group_by(ARDocument.nube_status_web).all()
+        ).filter(~ARDocument.Document.like('T%')).group_by(ARDocument.nube_status_web).all()
         
     elif tipo == "retenciones":
         resultados = db.query(

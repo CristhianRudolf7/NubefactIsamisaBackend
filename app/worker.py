@@ -40,7 +40,8 @@ class DocumentWorker:
                     or_(ARDocument.fe == None, ARDocument.fe == '', func.lower(ARDocument.fe) == 'pendiente'),
                     # No filtrar estrictamente por Status == '1' ya que puede variar en la BD
                     # pero asegurarnos de que no necesite aprobación
-                    ARDocument.necesita_aprobacion == False
+                    ARDocument.necesita_aprobacion == False,
+                    ~ARDocument.Document.like('T%')
                 ).all()
                 
                 if ventas_pendientes:

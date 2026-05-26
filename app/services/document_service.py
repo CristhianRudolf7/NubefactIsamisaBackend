@@ -418,6 +418,9 @@ class DocumentService:
     
     async def enviar_documento_venta(self, document_id: str, usuario: str) -> Dict[str, Any]:
         """Envía documento de venta a NubeFact"""
+        if document_id and document_id.startswith('T'):
+            return {"success": False, "message": "Los tickets no están permitidos para envío a NubeFact"}
+
         peru_now = now_peru()
         print(f"\n{'='*60}")
         print(f"ENVIO A NUBEFACT - Documento: {document_id}")
@@ -425,7 +428,8 @@ class DocumentService:
         print(f"{'='*60}")
         
         documento = self.db.query(ARDocument).filter(
-            ARDocument.Document == document_id
+            ARDocument.Document == document_id,
+            ~ARDocument.Document.like('T%')
         ).first()
         
         if not documento:
