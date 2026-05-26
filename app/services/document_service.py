@@ -453,12 +453,23 @@ class DocumentService:
         if documento.necesita_aprobacion:
             return {"success": False, "message": "El documento requiere aprobación del administrador antes de ser enviado"}
         
+        # Determinar si el documento está en Soles (LO) o Extranjera (EX)
+        is_soles = (documento.DocumentCurrency == "LO")
+        
         # Construir items
         items = []
         print(f"\nDetalles del documento:")
         for det in documento.detalles:
             print(f"  Linea {det.Line}: {det.ItemCode} - {det.Description}")
             print(f"    Cantidad: {det.Quantity}, Precio: {det.Price}, Total: {det.Total}")
+            
+            # En la BD: 
+            # - det.Total es el subtotal (neto sin IGV)
+            # - det.TotalTaxLo/Ex es el total con IGV
+            item_subtotal = det.Total or 0
+            item_total = det.TotalTaxLo if is_soles else (det.TotalTaxEx or 0)
+            item_igv = round(max(0.0, item_total - item_subtotal), 2)
+            
             items.append(NubeFactItem(
                 unidad_de_medida=self._map_unidad(det.Unit),
                 codigo=det.ItemCode or "",
@@ -466,10 +477,10 @@ class DocumentService:
                 cantidad=det.Quantity or 0,
                 valor_unitario=det.Price or 0,
                 precio_unitario=det.PriceTax or 0,
-                subtotal=det.SubTotal or 0,
+                subtotal=item_subtotal,
                 tipo_de_igv="1",
-                igv=det.TotalTaxLo or 0,
-                total=det.Total or 0,
+                igv=item_igv,
+                total=item_total,
                 codigo_producto_sunat=None,
             ))
         
@@ -496,6 +507,11 @@ class DocumentService:
         print(f"Fecha documento DB: {fecha_doc}")
         print(f"Fecha a enviar (HOY Perú): {fecha_emision_peru}")
         
+        # Totales de cabecera según la moneda
+        header_total = documento.AmountTotalLo if is_soles else (documento.AmountTotalEx or 0)
+        header_gravada = documento.AmountNetLo if is_soles else (documento.AmountNetEx or 0)
+        header_igv = round(max(0.0, header_total - header_gravada), 2)
+        
         # Construir request
         request = NubeFactRequest(
             tipo_de_comprobante=tipo_comprobante,
@@ -507,11 +523,11 @@ class DocumentService:
             cliente_direccion=documento.VendorAddress or "",
             fecha_de_emision=fecha_emision_peru,  # Usar fecha de HOY
             fecha_de_vencimiento=self._fecha_excel_to_date(documento.DueDate),
-            moneda="1" if documento.DocumentCurrency == "LO" else "2",
+            moneda="1" if is_soles else "2",
             tipo_de_cambio=documento.ExchangeRate,
-            total_gravada=documento.AmountNetLo or 0,
-            total_igv=documento.AmountTaxLo or 0,
-            total=documento.AmountTotalLo or 0,
+            total_gravada=header_gravada,
+            total_igv=header_igv,
+            total=header_total,
             condiciones_de_pago=documento.CondicionPago,
             items=items,
         )
