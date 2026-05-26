@@ -45,7 +45,7 @@ def sincronizar_ventas(conn, commit):
         INNER JOIN AR_Document d ON n.serie = d.DocumentSerie AND n.numero = d.DocumentNo
         WHERE d.nube_status_web IN ('pendiente', 'enviado')
           AND (n.aceptada_por_sunat = 'true' OR n.aceptada_por_sunat = '1')
-          AND NOT (LOWER(d.fe) LIKE '%aceptad%' OR LOWER(d.fe) = 'correcto')
+          AND NOT (ISNULL(LOWER(d.fe), '') LIKE '%aceptad%' OR ISNULL(LOWER(d.fe), '') = 'correcto')
     """)).scalar()
 
     # 2. Contar/actualizar enviados
@@ -62,7 +62,7 @@ def sincronizar_ventas(conn, commit):
         INNER JOIN AR_Document d ON n.serie = d.DocumentSerie AND n.numero = d.DocumentNo
         WHERE d.nube_status_web = 'pendiente'
           AND NOT (n.aceptada_por_sunat = 'true' OR n.aceptada_por_sunat = '1')
-          AND d.fe <> 'enviado'
+          AND ISNULL(d.fe, '') <> 'enviado'
     """)).scalar()
 
     # 3. Contar/actualizar errores
@@ -135,43 +135,47 @@ def sincronizar_guias(conn, commit):
     print("SINCRONIZACIÓN DE GUÍAS (WH_Transaction)")
     print("=" * 80)
     
+    # Expresión SQL Server limpia para limpiar salto de línea en envio_nube
+    clean_envio = "LTRIM(RTRIM(REPLACE(REPLACE(envio_nube, CHAR(13), ''), CHAR(10), '')))"
+
     # 1. Contar/actualizar aceptados
-    cnt_aceptado_fe = conn.execute(text("""
+    cnt_aceptado_fe = conn.execute(text(f"""
         SELECT COUNT(*) FROM WH_Transaction 
         WHERE nube_status_web IN ('pendiente', 'enviado')
-          AND LTRIM(RTRIM(envio_nube)) = 'aceptada'
+          AND {clean_envio} = 'aceptada'
     """)).scalar()
 
-    cnt_aceptado_nube = conn.execute(text("""
+    cnt_aceptado_nube = conn.execute(text(f"""
         SELECT COUNT(*) 
         FROM wh_transaction_nube n
         INNER JOIN WH_Transaction g ON n.TransactionId = g.[Transaction]
         WHERE g.nube_status_web IN ('pendiente', 'enviado')
           AND (n.aceptada_por_sunat = 'true' OR n.aceptada_por_sunat = '1')
-          AND NOT LTRIM(RTRIM(g.envio_nube)) = 'aceptada'
+          AND NOT LTRIM(RTRIM(REPLACE(REPLACE(g.envio_nube, CHAR(13), ''), CHAR(10), ''))) = 'aceptada'
     """)).scalar()
 
     # 2. Contar/actualizar enviados
-    cnt_enviado_fe = conn.execute(text("""
+    cnt_enviado_fe = conn.execute(text(f"""
         SELECT COUNT(*) FROM WH_Transaction 
-        WHERE nube_status_web = 'pendiente' AND LTRIM(RTRIM(envio_nube)) = 'enviado'
+        WHERE nube_status_web = 'pendiente' 
+          AND {clean_envio} = 'enviado'
     """)).scalar()
 
-    cnt_enviado_nube = conn.execute(text("""
+    cnt_enviado_nube = conn.execute(text(f"""
         SELECT COUNT(*) 
         FROM wh_transaction_nube n
         INNER JOIN WH_Transaction g ON n.TransactionId = g.[Transaction]
         WHERE g.nube_status_web = 'pendiente'
           AND NOT (n.aceptada_por_sunat = 'true' OR n.aceptada_por_sunat = '1')
-          AND LTRIM(RTRIM(g.envio_nube)) <> 'enviado'
+          AND LTRIM(RTRIM(REPLACE(REPLACE(g.envio_nube, CHAR(13), ''), CHAR(10), ''))) <> 'enviado'
     """)).scalar()
 
     # 3. Contar/actualizar errores
-    cnt_error = conn.execute(text("""
+    cnt_error = conn.execute(text(f"""
         SELECT COUNT(*) FROM WH_Transaction 
         WHERE nube_status_web = 'pendiente'
-          AND (LTRIM(RTRIM(envio_nube)) LIKE '%error%' OR LEN(LTRIM(RTRIM(envio_nube))) > 20)
-          AND LTRIM(RTRIM(envio_nube)) NOT IN ('aceptada', 'enviado', 'anulado')
+          AND ({clean_envio} LIKE '%error%' OR LEN({clean_envio}) > 20)
+          AND {clean_envio} NOT IN ('aceptada', 'enviado', 'anulado')
     """)).scalar()
 
     total = cnt_aceptado_fe + cnt_aceptado_nube + cnt_enviado_fe + cnt_enviado_nube + cnt_error
@@ -187,11 +191,11 @@ def sincronizar_guias(conn, commit):
         print("Aplicando actualizaciones de Guías...")
         
         # Aceptados
-        r1 = conn.execute(text("""
+        r1 = conn.execute(text(f"""
             UPDATE WH_Transaction
             SET nube_status_web = 'aceptado'
             WHERE nube_status_web IN ('pendiente', 'enviado')
-              AND LTRIM(RTRIM(envio_nube)) = 'aceptada'
+              AND {clean_envio} = 'aceptada'
         """))
         print(f"  -> {r1.rowcount} registros actualizados a 'aceptado' por histórico")
 
@@ -206,10 +210,10 @@ def sincronizar_guias(conn, commit):
         print(f"  -> {r2.rowcount} registros actualizados a 'aceptado' por NubeFact")
 
         # Enviados
-        r3 = conn.execute(text("""
+        r3 = conn.execute(text(f"""
             UPDATE WH_Transaction
             SET nube_status_web = 'enviado'
-            WHERE nube_status_web = 'pendiente' AND LTRIM(RTRIM(envio_nube)) = 'enviado'
+            WHERE nube_status_web = 'pendiente' AND {clean_envio} = 'enviado'
         """))
         print(f"  -> {r3.rowcount} registros actualizados a 'enviado' por histórico")
 
@@ -223,12 +227,12 @@ def sincronizar_guias(conn, commit):
         print(f"  -> {r4.rowcount} registros actualizados a 'enviado' por NubeFact")
 
         # Errores
-        r5 = conn.execute(text("""
+        r5 = conn.execute(text(f"""
             UPDATE WH_Transaction
             SET nube_status_web = 'error'
             WHERE nube_status_web = 'pendiente'
-              AND (LTRIM(RTRIM(envio_nube)) LIKE '%error%' OR LEN(LTRIM(RTRIM(envio_nube))) > 20)
-              AND LTRIM(RTRIM(envio_nube)) NOT IN ('aceptada', 'enviado', 'anulado')
+              AND ({clean_envio} LIKE '%error%' OR LEN({clean_envio}) > 20)
+              AND {clean_envio} NOT IN ('aceptada', 'enviado', 'anulado')
         """))
         print(f"  -> {r5.rowcount} registros actualizados a 'error'")
 
