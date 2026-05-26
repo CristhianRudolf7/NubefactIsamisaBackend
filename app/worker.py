@@ -41,7 +41,8 @@ class DocumentWorker:
                     # No filtrar estrictamente por Status == '1' ya que puede variar en la BD
                     # pero asegurarnos de que no necesite aprobación
                     ARDocument.necesita_aprobacion == False,
-                    ~ARDocument.Document.like('T%')
+                    ~ARDocument.Document.like('T%'),
+                    ~ARDocument.DocumentSerie.like('T%')
                 ).all()
                 
                 if ventas_pendientes:

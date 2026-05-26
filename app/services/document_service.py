@@ -429,12 +429,13 @@ class DocumentService:
         
         documento = self.db.query(ARDocument).filter(
             ARDocument.Document == document_id,
-            ~ARDocument.Document.like('T%')
+            ~ARDocument.Document.like('T%'),
+            ~ARDocument.DocumentSerie.like('T%')
         ).first()
         
-        if not documento:
-            print(f"ERROR: Documento no encontrado")
-            return {"success": False, "message": "Documento no encontrado"}
+        if not documento or (documento.DocumentSerie and documento.DocumentSerie.startswith('T')):
+            print(f"ERROR: Documento no encontrado o es un ticket")
+            return {"success": False, "message": "Documento no encontrado o es un ticket"}
         
         print(f"Documento encontrado:")
         print(f"  - Serie: {documento.DocumentSerie}")
