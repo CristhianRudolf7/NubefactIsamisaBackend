@@ -5,8 +5,7 @@ Script para sincronizar y corregir la columna 'nube_status_web' en:
 - WH_Transaction (Guías)
 - AP_Retencion (Retenciones)
 
-Resuelve las discrepancias donde figuran como 'pendiente' o 'enviado' 
-pero ya fueron aceptados o enviados en las tablas históricas o de NubeFact.
+Optimizado para ejecutarse al instante en bases de datos de producción con millones de registros.
 La única columna modificada es 'nube_status_web'.
 """
 import os
@@ -31,75 +30,104 @@ def sincronizar_ventas(conn, commit):
     print("SINCRONIZACIÓN DE VENTAS (AR_Document)")
     print("=" * 80)
     
-    # Caso A: Cambiar a 'aceptado' porque está aceptado en ar_fe_nube o fe dice correcto/aceptado
-    cnt_aceptado = conn.execute(text("""
+    # 1. Contar/actualizar aceptados
+    # Caso A1: Por campo 'fe' en la cabecera (sin joins, instantáneo)
+    cnt_aceptado_fe = conn.execute(text("""
+        SELECT COUNT(*) FROM AR_Document 
+        WHERE nube_status_web IN ('pendiente', 'enviado')
+          AND (LOWER(fe) LIKE '%aceptad%' OR LOWER(fe) = 'correcto')
+    """)).scalar()
+
+    # Caso A2: Por respuestas en ar_fe_nube (join rápido partiendo de n)
+    cnt_aceptado_nube = conn.execute(text("""
         SELECT COUNT(*) 
-        FROM AR_Document d
-        LEFT JOIN ar_fe_nube n ON n.serie = d.DocumentSerie AND n.numero = d.DocumentNo
+        FROM ar_fe_nube n
+        INNER JOIN AR_Document d ON n.serie = d.DocumentSerie AND n.numero = d.DocumentNo
         WHERE d.nube_status_web IN ('pendiente', 'enviado')
-          AND (n.aceptada_por_sunat = 'true' OR n.aceptada_por_sunat = '1' OR LOWER(d.fe) LIKE '%aceptad%' OR LOWER(d.fe) = 'correcto')
-          -- Evitar redundancia si ya está en aceptado
-          AND d.nube_status_web <> 'aceptado'
+          AND (n.aceptada_por_sunat = 'true' OR n.aceptada_por_sunat = '1')
+          AND NOT (LOWER(d.fe) LIKE '%aceptad%' OR LOWER(d.fe) = 'correcto')
     """)).scalar()
 
-    # Caso B: Cambiar a 'enviado' porque fe = 'enviado' o hay respuesta en ar_fe_nube (pero no es 'true'/'1' todavía o no está aceptado)
-    cnt_enviado = conn.execute(text("""
+    # 2. Contar/actualizar enviados
+    # Caso B1: Por campo 'fe' = 'enviado' (sin joins)
+    cnt_enviado_fe = conn.execute(text("""
+        SELECT COUNT(*) FROM AR_Document 
+        WHERE nube_status_web = 'pendiente' AND fe = 'enviado'
+    """)).scalar()
+
+    # Caso B2: Por existencia en ar_fe_nube pero no aceptado (join rápido partiendo de n)
+    cnt_enviado_nube = conn.execute(text("""
         SELECT COUNT(*) 
-        FROM AR_Document d
-        LEFT JOIN ar_fe_nube n ON n.serie = d.DocumentSerie AND n.numero = d.DocumentNo
+        FROM ar_fe_nube n
+        INNER JOIN AR_Document d ON n.serie = d.DocumentSerie AND n.numero = d.DocumentNo
         WHERE d.nube_status_web = 'pendiente'
-          AND (d.fe = 'enviado' OR n.id IS NOT NULL)
-          AND NOT (n.aceptada_por_sunat = 'true' OR n.aceptada_por_sunat = '1' OR LOWER(d.fe) LIKE '%aceptad%' OR LOWER(d.fe) = 'correcto')
+          AND NOT (n.aceptada_por_sunat = 'true' OR n.aceptada_por_sunat = '1')
+          AND d.fe <> 'enviado'
     """)).scalar()
 
-    # Caso C: Cambiar a 'error' porque fe tiene error
+    # 3. Contar/actualizar errores
     cnt_error = conn.execute(text("""
-        SELECT COUNT(*) 
-        FROM AR_Document d
-        WHERE d.nube_status_web = 'pendiente'
-          AND (LOWER(d.fe) LIKE '%error%' OR LEN(d.fe) > 20)
+        SELECT COUNT(*) FROM AR_Document 
+        WHERE nube_status_web = 'pendiente'
+          AND (LOWER(fe) LIKE '%error%' OR LEN(fe) > 20)
     """)).scalar()
 
-    total = cnt_aceptado + cnt_enviado + cnt_error
+    total = cnt_aceptado_fe + cnt_aceptado_nube + cnt_enviado_fe + cnt_enviado_nube + cnt_error
     print(f"Registros a actualizar en Ventas:")
-    print(f"  - A 'aceptado': {cnt_aceptado}")
-    print(f"  - A 'enviado':  {cnt_enviado}")
-    print(f"  - A 'error':    {cnt_error}")
-    print(f"  Total:          {total}")
+    print(f"  - A 'aceptado' (por histórico): {cnt_aceptado_fe}")
+    print(f"  - A 'aceptado' (por NubeFact):  {cnt_aceptado_nube}")
+    print(f"  - A 'enviado'  (por histórico): {cnt_enviado_fe}")
+    print(f"  - A 'enviado'  (por NubeFact):  {cnt_enviado_nube}")
+    print(f"  - A 'error':                    {cnt_error}")
+    print(f"  Total a modificar en Ventas:    {total}")
     
     if total > 0 and commit:
-        # 1. Update aceptados (inclinando tanto pendientes como enviados que estén aceptados en SUNAT)
-        res_act_aceptado = conn.execute(text("""
+        print("Aplicando actualizaciones de Ventas...")
+        
+        # Updates para Aceptados
+        r1 = conn.execute(text("""
+            UPDATE AR_Document
+            SET nube_status_web = 'aceptado'
+            WHERE nube_status_web IN ('pendiente', 'enviado')
+              AND (LOWER(fe) LIKE '%aceptad%' OR LOWER(fe) = 'correcto')
+        """))
+        print(f"  -> {r1.rowcount} registros actualizados a 'aceptado' por histórico")
+
+        r2 = conn.execute(text("""
             UPDATE d
             SET d.nube_status_web = 'aceptado'
-            FROM AR_Document d
-            LEFT JOIN ar_fe_nube n ON n.serie = d.DocumentSerie AND n.numero = d.DocumentNo
+            FROM ar_fe_nube n
+            INNER JOIN AR_Document d ON n.serie = d.DocumentSerie AND n.numero = d.DocumentNo
             WHERE d.nube_status_web IN ('pendiente', 'enviado')
-              AND (n.aceptada_por_sunat = 'true' OR n.aceptada_por_sunat = '1' OR LOWER(d.fe) LIKE '%aceptad%' OR LOWER(d.fe) = 'correcto')
-              AND d.nube_status_web <> 'aceptado'
+              AND (n.aceptada_por_sunat = 'true' OR n.aceptada_por_sunat = '1')
         """))
-        print(f"  -> {res_act_aceptado.rowcount} registros actualizados a 'aceptado'")
+        print(f"  -> {r2.rowcount} registros actualizados a 'aceptado' por NubeFact")
 
-        # 2. Update enviados
-        res_act_enviado = conn.execute(text("""
+        # Updates para Enviados
+        r3 = conn.execute(text("""
+            UPDATE AR_Document
+            SET nube_status_web = 'enviado'
+            WHERE nube_status_web = 'pendiente' AND fe = 'enviado'
+        """))
+        print(f"  -> {r3.rowcount} registros actualizados a 'enviado' por histórico")
+
+        r4 = conn.execute(text("""
             UPDATE d
             SET d.nube_status_web = 'enviado'
-            FROM AR_Document d
-            LEFT JOIN ar_fe_nube n ON n.serie = d.DocumentSerie AND n.numero = d.DocumentNo
+            FROM ar_fe_nube n
+            INNER JOIN AR_Document d ON n.serie = d.DocumentSerie AND n.numero = d.DocumentNo
             WHERE d.nube_status_web = 'pendiente'
-              AND (d.fe = 'enviado' OR n.id IS NOT NULL)
-              AND NOT (n.aceptada_por_sunat = 'true' OR n.aceptada_por_sunat = '1' OR LOWER(d.fe) LIKE '%aceptad%' OR LOWER(d.fe) = 'correcto')
         """))
-        print(f"  -> {res_act_enviado.rowcount} registros actualizados a 'enviado'")
+        print(f"  -> {r4.rowcount} registros actualizados a 'enviado' por NubeFact")
 
-        # 3. Update errores
-        res_act_error = conn.execute(text("""
+        # Updates para Errores
+        r5 = conn.execute(text("""
             UPDATE AR_Document
             SET nube_status_web = 'error'
             WHERE nube_status_web = 'pendiente'
               AND (LOWER(fe) LIKE '%error%' OR LEN(fe) > 20)
         """))
-        print(f"  -> {res_act_error.rowcount} registros actualizados a 'error'")
+        print(f"  -> {r5.rowcount} registros actualizados a 'error'")
 
 
 def sincronizar_guias(conn, commit):
@@ -107,76 +135,102 @@ def sincronizar_guias(conn, commit):
     print("SINCRONIZACIÓN DE GUÍAS (WH_Transaction)")
     print("=" * 80)
     
-    # Caso A: Cambiar a 'aceptado' porque está aceptado en wh_transaction_nube o envio_nube dice aceptada (con trim)
-    cnt_aceptado = conn.execute(text("""
+    # 1. Contar/actualizar aceptados
+    cnt_aceptado_fe = conn.execute(text("""
+        SELECT COUNT(*) FROM WH_Transaction 
+        WHERE nube_status_web IN ('pendiente', 'enviado')
+          AND LTRIM(RTRIM(envio_nube)) = 'aceptada'
+    """)).scalar()
+
+    cnt_aceptado_nube = conn.execute(text("""
         SELECT COUNT(*) 
-        FROM WH_Transaction g
-        LEFT JOIN wh_transaction_nube n ON n.TransactionId = g.[Transaction]
+        FROM wh_transaction_nube n
+        INNER JOIN WH_Transaction g ON n.TransactionId = g.[Transaction]
         WHERE g.nube_status_web IN ('pendiente', 'enviado')
-          AND (n.aceptada_por_sunat = 'true' OR n.aceptada_por_sunat = '1' OR LTRIM(RTRIM(g.envio_nube)) = 'aceptada')
-          AND g.nube_status_web <> 'aceptado'
+          AND (n.aceptada_por_sunat = 'true' OR n.aceptada_por_sunat = '1')
+          AND NOT LTRIM(RTRIM(g.envio_nube)) = 'aceptada'
     """)).scalar()
 
-    # Caso B: Cambiar a 'enviado' porque envio_nube = 'enviado' o hay respuesta en wh_transaction_nube (pero no es 'true'/'1' todavía)
-    cnt_enviado = conn.execute(text("""
+    # 2. Contar/actualizar enviados
+    cnt_enviado_fe = conn.execute(text("""
+        SELECT COUNT(*) FROM WH_Transaction 
+        WHERE nube_status_web = 'pendiente' AND LTRIM(RTRIM(envio_nube)) = 'enviado'
+    """)).scalar()
+
+    cnt_enviado_nube = conn.execute(text("""
         SELECT COUNT(*) 
-        FROM WH_Transaction g
-        LEFT JOIN wh_transaction_nube n ON n.TransactionId = g.[Transaction]
+        FROM wh_transaction_nube n
+        INNER JOIN WH_Transaction g ON n.TransactionId = g.[Transaction]
         WHERE g.nube_status_web = 'pendiente'
-          AND (LTRIM(RTRIM(g.envio_nube)) = 'enviado' OR n.id IS NOT NULL)
-          AND NOT (n.aceptada_por_sunat = 'true' OR n.aceptada_por_sunat = '1' OR LTRIM(RTRIM(g.envio_nube)) = 'aceptada')
+          AND NOT (n.aceptada_por_sunat = 'true' OR n.aceptada_por_sunat = '1')
+          AND LTRIM(RTRIM(g.envio_nube)) <> 'enviado'
     """)).scalar()
 
-    # Caso C: Cambiar a 'error' porque envio_nube tiene un mensaje largo o error
+    # 3. Contar/actualizar errores
     cnt_error = conn.execute(text("""
-        SELECT COUNT(*) 
-        FROM WH_Transaction g
-        WHERE g.nube_status_web = 'pendiente'
-          AND (LTRIM(RTRIM(g.envio_nube)) LIKE '%error%' OR LEN(LTRIM(RTRIM(g.envio_nube))) > 20)
-          AND LTRIM(RTRIM(g.envio_nube)) NOT IN ('aceptada', 'enviado', 'anulado')
+        SELECT COUNT(*) FROM WH_Transaction 
+        WHERE nube_status_web = 'pendiente'
+          AND (LTRIM(RTRIM(envio_nube)) LIKE '%error%' OR LEN(LTRIM(RTRIM(envio_nube))) > 20)
+          AND LTRIM(RTRIM(envio_nube)) NOT IN ('aceptada', 'enviado', 'anulado')
     """)).scalar()
 
-    total = cnt_aceptado + cnt_enviado + cnt_error
+    total = cnt_aceptado_fe + cnt_aceptado_nube + cnt_enviado_fe + cnt_enviado_nube + cnt_error
     print(f"Registros a actualizar en Guías:")
-    print(f"  - A 'aceptado': {cnt_aceptado}")
-    print(f"  - A 'enviado':  {cnt_enviado}")
-    print(f"  - A 'error':    {cnt_error}")
-    print(f"  Total:          {total}")
+    print(f"  - A 'aceptado' (por histórico): {cnt_aceptado_fe}")
+    print(f"  - A 'aceptado' (por NubeFact):  {cnt_aceptado_nube}")
+    print(f"  - A 'enviado'  (por histórico): {cnt_enviado_fe}")
+    print(f"  - A 'enviado'  (por NubeFact):  {cnt_enviado_nube}")
+    print(f"  - A 'error':                    {cnt_error}")
+    print(f"  Total a modificar en Guías:     {total}")
     
     if total > 0 and commit:
-        # 1. Update aceptados
-        res_act_aceptado = conn.execute(text("""
+        print("Aplicando actualizaciones de Guías...")
+        
+        # Aceptados
+        r1 = conn.execute(text("""
+            UPDATE WH_Transaction
+            SET nube_status_web = 'aceptado'
+            WHERE nube_status_web IN ('pendiente', 'enviado')
+              AND LTRIM(RTRIM(envio_nube)) = 'aceptada'
+        """))
+        print(f"  -> {r1.rowcount} registros actualizados a 'aceptado' por histórico")
+
+        r2 = conn.execute(text("""
             UPDATE g
             SET g.nube_status_web = 'aceptado'
-            FROM WH_Transaction g
-            LEFT JOIN wh_transaction_nube n ON n.TransactionId = g.[Transaction]
+            FROM wh_transaction_nube n
+            INNER JOIN WH_Transaction g ON n.TransactionId = g.[Transaction]
             WHERE g.nube_status_web IN ('pendiente', 'enviado')
-              AND (n.aceptada_por_sunat = 'true' OR n.aceptada_por_sunat = '1' OR LTRIM(RTRIM(g.envio_nube)) = 'aceptada')
-              AND g.nube_status_web <> 'aceptado'
+              AND (n.aceptada_por_sunat = 'true' OR n.aceptada_por_sunat = '1')
         """))
-        print(f"  -> {res_act_aceptado.rowcount} registros actualizados a 'aceptado'")
+        print(f"  -> {r2.rowcount} registros actualizados a 'aceptado' por NubeFact")
 
-        # 2. Update enviados
-        res_act_enviado = conn.execute(text("""
+        # Enviados
+        r3 = conn.execute(text("""
+            UPDATE WH_Transaction
+            SET nube_status_web = 'enviado'
+            WHERE nube_status_web = 'pendiente' AND LTRIM(RTRIM(envio_nube)) = 'enviado'
+        """))
+        print(f"  -> {r3.rowcount} registros actualizados a 'enviado' por histórico")
+
+        r4 = conn.execute(text("""
             UPDATE g
             SET g.nube_status_web = 'enviado'
-            FROM WH_Transaction g
-            LEFT JOIN wh_transaction_nube n ON n.TransactionId = g.[Transaction]
+            FROM wh_transaction_nube n
+            INNER JOIN WH_Transaction g ON n.TransactionId = g.[Transaction]
             WHERE g.nube_status_web = 'pendiente'
-              AND (LTRIM(RTRIM(g.envio_nube)) = 'enviado' OR n.id IS NOT NULL)
-              AND NOT (n.aceptada_por_sunat = 'true' OR n.aceptada_por_sunat = '1' OR LTRIM(RTRIM(g.envio_nube)) = 'aceptada')
         """))
-        print(f"  -> {res_act_enviado.rowcount} registros actualizados a 'enviado'")
+        print(f"  -> {r4.rowcount} registros actualizados a 'enviado' por NubeFact")
 
-        # 3. Update errores
-        res_act_error = conn.execute(text("""
+        # Errores
+        r5 = conn.execute(text("""
             UPDATE WH_Transaction
             SET nube_status_web = 'error'
             WHERE nube_status_web = 'pendiente'
               AND (LTRIM(RTRIM(envio_nube)) LIKE '%error%' OR LEN(LTRIM(RTRIM(envio_nube))) > 20)
               AND LTRIM(RTRIM(envio_nube)) NOT IN ('aceptada', 'enviado', 'anulado')
         """))
-        print(f"  -> {res_act_error.rowcount} registros actualizados a 'error'")
+        print(f"  -> {r5.rowcount} registros actualizados a 'error'")
 
 
 def sincronizar_retenciones(conn, commit):
@@ -184,92 +238,116 @@ def sincronizar_retenciones(conn, commit):
     print("SINCRONIZACIÓN DE RETENCIONES (AP_Retencion)")
     print("=" * 80)
     
-    # Caso A: Cambiar a 'aceptado' porque está aceptada en AP_Retencion_Status o status dice aceptada
-    cnt_aceptado = conn.execute(text("""
+    # 1. Contar/actualizar aceptados
+    cnt_aceptado_fe = conn.execute(text("""
+        SELECT COUNT(*) FROM AP_Retencion 
+        WHERE nube_status_web IN ('pendiente', 'enviado')
+          AND (LOWER(status) LIKE '%aceptad%' OR LOWER(status) = 'enviada')
+    """)).scalar()
+
+    cnt_aceptado_nube = conn.execute(text("""
         SELECT COUNT(*) 
-        FROM AP_Retencion r
-        LEFT JOIN AP_Retencion_Status s ON s.Retencion = r.Id
+        FROM AP_Retencion_Status s
+        INNER JOIN AP_Retencion r ON s.Retencion = r.Id
         WHERE r.nube_status_web IN ('pendiente', 'enviado')
-          AND (s.Status = 'aceptada' OR LOWER(r.status) LIKE '%aceptad%' OR LOWER(r.status) = 'enviada')
-          AND r.nube_status_web <> 'aceptado'
+          AND s.Status = 'aceptada'
+          AND NOT (LOWER(r.status) LIKE '%aceptad%' OR LOWER(r.status) = 'enviada')
     """)).scalar()
 
-    # Caso B: Cambiar a 'enviado' porque status = 'enviado' o hay respuesta en AP_Retencion_Status (pero no es 'aceptada' todavía)
-    cnt_enviado = conn.execute(text("""
+    # 2. Contar/actualizar enviados
+    cnt_enviado_fe = conn.execute(text("""
+        SELECT COUNT(*) FROM AP_Retencion 
+        WHERE nube_status_web = 'pendiente' AND LOWER(status) = 'enviado'
+    """)).scalar()
+
+    cnt_enviado_nube = conn.execute(text("""
         SELECT COUNT(*) 
-        FROM AP_Retencion r
-        LEFT JOIN AP_Retencion_Status s ON s.Retencion = r.Id
+        FROM AP_Retencion_Status s
+        INNER JOIN AP_Retencion r ON s.Retencion = r.Id
         WHERE r.nube_status_web = 'pendiente'
-          AND (LOWER(r.status) = 'enviado' OR s.Id IS NOT NULL)
-          AND NOT (s.Status = 'aceptada' OR LOWER(r.status) LIKE '%aceptad%' OR LOWER(r.status) = 'enviada')
+          AND s.Status <> 'aceptada'
+          AND LOWER(r.status) <> 'enviado'
     """)).scalar()
 
-    # Caso C: Cambiar a 'error' porque status tiene error
+    # 3. Contar/actualizar errores y anulados
     cnt_error = conn.execute(text("""
-        SELECT COUNT(*) 
-        FROM AP_Retencion r
-        WHERE r.nube_status_web = 'pendiente'
-          AND (LOWER(r.status) LIKE '%error%' OR LOWER(r.status) LIKE '%rechaza%')
+        SELECT COUNT(*) FROM AP_Retencion 
+        WHERE nube_status_web = 'pendiente'
+          AND (LOWER(status) LIKE '%error%' OR LOWER(status) LIKE '%rechaza%')
     """)).scalar()
 
-    # Caso D: Cambiar a 'anulado' porque status dice anulado
     cnt_anulado = conn.execute(text("""
-        SELECT COUNT(*) 
-        FROM AP_Retencion r
-        WHERE r.nube_status_web = 'pendiente'
-          AND (LOWER(r.status) = 'anulado' OR LOWER(r.status) = 'anulada')
+        SELECT COUNT(*) FROM AP_Retencion 
+        WHERE nube_status_web = 'pendiente'
+          AND (LOWER(status) = 'anulado' OR LOWER(status) = 'anulada')
     """)).scalar()
 
-    total = cnt_aceptado + cnt_enviado + cnt_error + cnt_anulado
+    total = cnt_aceptado_fe + cnt_aceptado_nube + cnt_enviado_fe + cnt_enviado_nube + cnt_error + cnt_anulado
     print(f"Registros a actualizar en Retenciones:")
-    print(f"  - A 'aceptado': {cnt_aceptado}")
-    print(f"  - A 'enviado':  {cnt_enviado}")
-    print(f"  - A 'error':    {cnt_error}")
-    print(f"  - A 'anulado':  {cnt_anulado}")
-    print(f"  Total:          {total}")
+    print(f"  - A 'aceptado' (por histórico): {cnt_aceptado_fe}")
+    print(f"  - A 'aceptado' (por NubeFact):  {cnt_aceptado_nube}")
+    print(f"  - A 'enviado'  (por histórico): {cnt_enviado_fe}")
+    print(f"  - A 'enviado'  (por NubeFact):  {cnt_enviado_nube}")
+    print(f"  - A 'error':                    {cnt_error}")
+    print(f"  - A 'anulado':                  {cnt_anulado}")
+    print(f"  Total a modificar en Retenciones:{total}")
     
     if total > 0 and commit:
-        # 1. Update aceptados
-        res_act_aceptado = conn.execute(text("""
+        print("Aplicando actualizaciones de Retenciones...")
+        
+        # Aceptados
+        r1 = conn.execute(text("""
+            UPDATE AP_Retencion
+            SET nube_status_web = 'aceptado'
+            WHERE nube_status_web IN ('pendiente', 'enviado')
+              AND (LOWER(status) LIKE '%aceptad%' OR LOWER(status) = 'enviada')
+        """))
+        print(f"  -> {r1.rowcount} registros actualizados a 'aceptado' por histórico")
+
+        r2 = conn.execute(text("""
             UPDATE r
             SET r.nube_status_web = 'aceptado'
-            FROM AP_Retencion r
-            LEFT JOIN AP_Retencion_Status s ON s.Retencion = r.Id
+            FROM AP_Retencion_Status s
+            INNER JOIN AP_Retencion r ON s.Retencion = r.Id
             WHERE r.nube_status_web IN ('pendiente', 'enviado')
-              AND (s.Status = 'aceptada' OR LOWER(r.status) LIKE '%aceptad%' OR LOWER(r.status) = 'enviada')
-              AND r.nube_status_web <> 'aceptado'
+              AND s.Status = 'aceptada'
         """))
-        print(f"  -> {res_act_aceptado.rowcount} registros actualizados a 'aceptado'")
+        print(f"  -> {r2.rowcount} registros actualizados a 'aceptado' por NubeFact")
 
-        # 2. Update enviados
-        res_act_enviado = conn.execute(text("""
+        # Enviados
+        r3 = conn.execute(text("""
+            UPDATE AP_Retencion
+            SET nube_status_web = 'enviado'
+            WHERE nube_status_web = 'pendiente' AND LOWER(status) = 'enviado'
+        """))
+        print(f"  -> {r3.rowcount} registros actualizados a 'enviado' por histórico")
+
+        r4 = conn.execute(text("""
             UPDATE r
             SET r.nube_status_web = 'enviado'
-            FROM AP_Retencion r
-            LEFT JOIN AP_Retencion_Status s ON s.Retencion = r.Id
+            FROM AP_Retencion_Status s
+            INNER JOIN AP_Retencion r ON s.Retencion = r.Id
             WHERE r.nube_status_web = 'pendiente'
-              AND (LOWER(r.status) = 'enviado' OR s.Id IS NOT NULL)
-              AND NOT (s.Status = 'aceptada' OR LOWER(r.status) LIKE '%aceptad%' OR LOWER(r.status) = 'enviada')
         """))
-        print(f"  -> {res_act_enviado.rowcount} registros actualizados a 'enviado'")
+        print(f"  -> {r4.rowcount} registros actualizados a 'enviado' por NubeFact")
 
-        # 3. Update errores
-        res_act_error = conn.execute(text("""
+        # Errores
+        r5 = conn.execute(text("""
             UPDATE AP_Retencion
             SET nube_status_web = 'error'
             WHERE nube_status_web = 'pendiente'
               AND (LOWER(status) LIKE '%error%' OR LOWER(status) LIKE '%rechaza%')
         """))
-        print(f"  -> {res_act_error.rowcount} registros actualizados a 'error'")
+        print(f"  -> {r5.rowcount} registros actualizados a 'error'")
 
-        # 4. Update anulados
-        res_act_anulado = conn.execute(text("""
+        # Anulados
+        r6 = conn.execute(text("""
             UPDATE AP_Retencion
             SET nube_status_web = 'anulado'
             WHERE nube_status_web = 'pendiente'
               AND (LOWER(status) = 'anulado' OR LOWER(status) = 'anulada')
         """))
-        print(f"  -> {res_act_anulado.rowcount} registros actualizados a 'anulado'")
+        print(f"  -> {r6.rowcount} registros actualizados a 'anulado'")
 
 
 def main():
@@ -281,7 +359,7 @@ def main():
     db_url = settings.database_url
     
     print("=" * 80)
-    print("SINCRONIZACIÓN INTEGRAL DE ESTADOS (NUBE_STATUS_WEB) EN PRODUCCIÓN")
+    print("SINCRONIZACIÓN INTEGRAL DE ESTADOS (NUBE_STATUS_WEB) EN PRODUCCIÓN (OPTIMIZADA)")
     print("=" * 80)
     print(f"Base de datos: {db_url.split('@')[-1] if '@' in db_url else db_url}")
     print(f"Modo: {'EJECUCIÓN REAL (COMMIT)' if args.commit else 'SIMULACIÓN (DRY RUN)'}")
