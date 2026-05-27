@@ -56,7 +56,7 @@ async def listar_documentos(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=10000)
 ):
-    query = db.query(ARDocument).filter(~ARDocument.Document.like('T%'), ~ARDocument.DocumentSerie.like('T%'))
+    query = db.query(ARDocument).filter(~ARDocument.DocumentSerie.like('T%'))
     
     if fecha_inicio:
         query = query.filter(ARDocument.DocumentDate >= parse_date_filter(fecha_inicio, is_end_date=False))
@@ -204,7 +204,6 @@ async def obtener_documento(
     """Obtiene detalle de un documento de venta"""
     documento = db.query(ARDocument).filter(
         ARDocument.Document == document_id,
-        ~ARDocument.Document.like('T%'),
         ~ARDocument.DocumentSerie.like('T%')
     ).first()
     
@@ -296,7 +295,6 @@ async def enviar_documento(
     # Obtener documento antes de enviar
     documento = db.query(ARDocument).filter(
         ARDocument.Document == document_id,
-        ~ARDocument.Document.like('T%'),
         ~ARDocument.DocumentSerie.like('T%')
     ).first()
     if not documento:
@@ -431,7 +429,6 @@ async def actualizar_documento(
     """Actualiza un documento de venta (solo si está rechazado/observado)"""
     documento = db.query(ARDocument).filter(
         ARDocument.Document == document_id,
-        ~ARDocument.Document.like('T%'),
         ~ARDocument.DocumentSerie.like('T%')
     ).first()
     
@@ -588,7 +585,6 @@ async def aprobar_documento(
     """Aprueba una edición realizada por un trabajador"""
     documento = db.query(ARDocument).filter(
         ARDocument.Document == document_id,
-        ~ARDocument.Document.like('T%'),
         ~ARDocument.DocumentSerie.like('T%')
     ).first()
     if not documento:
@@ -610,7 +606,6 @@ async def rechazar_documento(
     """Rechaza los cambios y restaura la versión anterior"""
     documento = db.query(ARDocument).filter(
         ARDocument.Document == document_id,
-        ~ARDocument.Document.like('T%'),
         ~ARDocument.DocumentSerie.like('T%')
     ).first()
     if not documento:
@@ -670,7 +665,6 @@ async def anular_documento(
     """Genera documento de anulación"""
     documento = db.query(ARDocument).filter(
         ARDocument.Document == document_id,
-        ~ARDocument.Document.like('T%'),
         ~ARDocument.DocumentSerie.like('T%')
     ).first()
 
@@ -760,7 +754,6 @@ async def descargar_pdf(
     """Descarga el PDF del documento"""
     documento = db.query(ARDocument).filter(
         ARDocument.Document == document_id,
-        ~ARDocument.Document.like('T%'),
         ~ARDocument.DocumentSerie.like('T%')
     ).first()
     if not documento:
@@ -801,7 +794,6 @@ async def descargar_xml(
     """Descarga el XML firmado del documento"""
     documento = db.query(ARDocument).filter(
         ARDocument.Document == document_id,
-        ~ARDocument.Document.like('T%'),
         ~ARDocument.DocumentSerie.like('T%')
     ).first()
     if not documento:
@@ -842,7 +834,6 @@ async def descargar_cdr(
     """Descarga el CDR (Constancia de Recepción) del documento"""
     documento = db.query(ARDocument).filter(
         ARDocument.Document == document_id,
-        ~ARDocument.Document.like('T%'),
         ~ARDocument.DocumentSerie.like('T%')
     ).first()
     if not documento:
