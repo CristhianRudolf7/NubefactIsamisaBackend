@@ -27,17 +27,36 @@ class DocumentService:
     def __init__(self, db: Session):
         self.db = db
     
-    def _fecha_excel_to_date(self, excel_date: float) -> str:
-        """Convierte fecha de Excel a formato dd-mm-YYYY"""
+    def _fecha_excel_to_date(self, excel_date: Any) -> str:
+        """Convierte fecha (datetime, float de Excel o str) a formato dd-mm-YYYY"""
         if not excel_date:
             return ""
+        from datetime import datetime, date, timedelta
+        
+        # Si ya es un objeto datetime o date
+        if isinstance(excel_date, (datetime, date)):
+            return excel_date.strftime("%d-%m-%Y")
+            
         try:
+            # Si es un número (o string numérico) que representa fecha de Excel
             # Excel fecha base: 30/12/1899
-            from datetime import datetime, timedelta
+            val = float(excel_date)
             base_date = datetime(1899, 12, 30)
-            result_date = base_date + timedelta(days=int(excel_date))
+            result_date = base_date + timedelta(days=int(val))
             return result_date.strftime("%d-%m-%Y")
-        except:
+        except (ValueError, TypeError):
+            # Si es un string, intentar limpiar y retornar o parsear
+            if isinstance(excel_date, str):
+                # Si ya tiene el formato correcto (ej: 27-05-2026 o 27/05/2026)
+                clean_str = excel_date.strip()
+                if len(clean_str) == 10 and (clean_str[2] == '-' or clean_str[2] == '/'):
+                    return clean_str.replace('/', '-')
+                # Si viene en formato YYYY-MM-DD
+                try:
+                    parsed_dt = datetime.strptime(clean_str[:10], "%Y-%m-%d")
+                    return parsed_dt.strftime("%d-%m-%Y")
+                except ValueError:
+                    pass
             return ""
     
     def _map_estado(self, estado: str) -> EstadoDocumento:
