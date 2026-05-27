@@ -134,11 +134,9 @@ Para corregir, haz clic en el siguiente enlace:
         numero: str,
         mensaje_sunat: str
     ) -> dict:
-        """Notifica que un documento fue aceptado por SUNAT"""
-        tipo_map = self.TIPO_DOCUMENTO_MAP.get(tipo_modulo, {})
-        tipo_legible = tipo_map.get(tipo_documento, tipo_documento or "Documento")
-        mensaje = self._construir_mensaje_exito(tipo_legible, serie, numero, mensaje_sunat)
-        return await self._enviar_a_usuarios(tipo_modulo, mensaje)
+        """Notifica que un documento fue aceptado por SUNAT (Desactivado por solicitud del usuario)"""
+        # Se desactiva el envío de notificaciones de éxito por WhatsApp. Solo se mantienen edición y error.
+        return {"success": True, "message": "Notificación de éxito desactivada por solicitud", "enviados": 0}
 
     async def _enviar_a_usuarios(self, tipo_modulo: str, mensaje: str) -> dict:
         """Método interno para enviar mensaje a todos los destinatarios pertinentes"""

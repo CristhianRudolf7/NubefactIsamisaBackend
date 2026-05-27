@@ -7,7 +7,7 @@ import base64
 import asyncio
 from datetime import datetime
 
-from ..database import get_db
+from ..database import get_db, SessionLocal
 from ..models.retenciones import APRetencion, APRetencionDetail, APRetencionStatus
 import json
 from ..models.auditoria import Auditoria
@@ -270,50 +270,56 @@ async def enviar_retencion(
     )
 
 
-async def procesar_envio_masivo_retenciones(ids: List[str], usuario: str, db: Session):
+async def procesar_envio_masivo_retenciones(ids: List[str], usuario: str):
     """Función de fondo para procesar múltiples retenciones"""
-    service = DocumentService(db)
-    for ret_id in ids:
-        try:
-            result = await service.enviar_retencion(int(ret_id), usuario)
-            if not result.get("success", False):
-                print(f"Error devuelto por servicio para retención {ret_id}: {result.get('message')}")
-                ret = db.query(APRetencion).filter(APRetencion.Id == int(ret_id)).first()
-                if ret and ret.status in ["pendiente", "error"] and not ret.necesita_aprobacion:
-                    ret.status = "error"
-                    
-                    status_record = APRetencionStatus(
-                        Retencion=int(ret_id),
-                        Status="error",
-                        Descripcion=result.get("message", "Error al enviar"),
-                        XlastUser=usuario,
-                        XlastDate=now_peru(),
-                    )
-                    db.add(status_record)
-                    db.commit()
-            await asyncio.sleep(1)
-        except Exception as e:
-            error_msg = str(e)
-            print(f"Excepción en envío masivo para retención {ret_id}: {error_msg}")
-            # Marcar como error en la base de datos para que el usuario lo vea
+    db: Session = SessionLocal()
+    try:
+        service = DocumentService(db)
+        for ret_id in ids:
             try:
-                ret = db.query(APRetencion).filter(APRetencion.Id == int(ret_id)).first()
-                if ret and ret.status in ["pendiente", "error"] and not ret.necesita_aprobacion:
-                    ret.status = "error"
-                    
-                    # Registrar el error en APRetencionStatus
-                    status_record = APRetencionStatus(
-                        Retencion=ret.Id,
-                        Status="error",
-                        error=error_msg,
-                        XlastUser=usuario,
-                        XlastDate=now_peru(),
-                    )
-                    db.add(status_record)
-                    db.commit()
-            except Exception as db_e:
-                print(f"Error al guardar estado de error en DB: {db_e}")
-                db.rollback()
+                result = await service.enviar_retencion(int(ret_id), usuario)
+                if not result.get("success", False):
+                    print(f"Error devuelto por servicio para retención {ret_id}: {result.get('message')}")
+                    ret = db.query(APRetencion).filter(APRetencion.Id == int(ret_id)).first()
+                    if ret and ret.status in ["pendiente", "error"] and not ret.necesita_aprobacion:
+                        ret.status = "error"
+                        ret.nube_status_web = "error"
+                        
+                        status_record = APRetencionStatus(
+                            Retencion=int(ret_id),
+                            Status="error",
+                            Descripcion=result.get("message", "Error al enviar"),
+                            XlastUser=usuario,
+                            XlastDate=now_peru(),
+                        )
+                        db.add(status_record)
+                        db.commit()
+                await asyncio.sleep(1)
+            except Exception as e:
+                error_msg = str(e)
+                print(f"Excepción en envío masivo para retención {ret_id}: {error_msg}")
+                # Marcar como error en la base de datos para que el usuario lo vea
+                try:
+                    ret = db.query(APRetencion).filter(APRetencion.Id == int(ret_id)).first()
+                    if ret and ret.status in ["pendiente", "error"] and not ret.necesita_aprobacion:
+                        ret.status = "error"
+                        ret.nube_status_web = "error"
+                        
+                        # Registrar el error en APRetencionStatus
+                        status_record = APRetencionStatus(
+                            Retencion=ret.Id,
+                            Status="error",
+                            error=error_msg,
+                            XlastUser=usuario,
+                            XlastDate=now_peru(),
+                        )
+                        db.add(status_record)
+                        db.commit()
+                except Exception as db_e:
+                    print(f"Error al guardar estado de error en DB: {db_e}")
+                    db.rollback()
+    finally:
+        db.close()
 
 
 @router.post("/bulk-enviar", response_model=ResponseBase)
@@ -327,8 +333,7 @@ async def enviar_masivo_retenciones(
     background_tasks.add_task(
         procesar_envio_masivo_retenciones,
         request.ids,
-        request.usuario,
-        db
+        request.usuario
     )
     
     return ResponseBase(

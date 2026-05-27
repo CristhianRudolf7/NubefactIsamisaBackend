@@ -7,7 +7,7 @@ import base64
 import asyncio
 from datetime import datetime
 
-from ..database import get_db
+from ..database import get_db, SessionLocal
 from ..models.guias import WHTransaction, WHTransactionDetail
 from ..models.guia_response import WHTransactionNube
 import json
@@ -236,28 +236,36 @@ async def enviar_guia(
     )
 
 
-async def procesar_envio_masivo_guias(ids: List[str], usuario: str, db: Session):
+async def procesar_envio_masivo_guias(ids: List[str], usuario: str):
     """Función de fondo para procesar múltiples guías"""
-    service = DocumentService(db)
-    for trans_id in ids:
-        try:
-            result = await service.enviar_guia(trans_id, usuario)
-            if not result.get("success", False):
-                print(f"Error devuelto por servicio para {trans_id}: {result.get('message')}")
-                guia = db.query(WHTransaction).filter(WHTransaction.Transaction == trans_id).first()
-                if guia and guia.Status in ["pendiente", "error"] and not guia.necesita_aprobacion:
-                    guia.Status = "error"
-                    db.commit()
-            await asyncio.sleep(1)
-        except Exception as e:
-            print(f"Excepción en envío masivo para guía {trans_id}: {e}")
+    db: Session = SessionLocal()
+    try:
+        service = DocumentService(db)
+        for trans_id in ids:
             try:
-                guia = db.query(WHTransaction).filter(WHTransaction.Transaction == trans_id).first()
-                if guia and guia.Status in ["pendiente", "error"] and not guia.necesita_aprobacion:
-                    guia.Status = "error"
-                    db.commit()
-            except:
-                db.rollback()
+                result = await service.enviar_guia(trans_id, usuario)
+                if not result.get("success", False):
+                    print(f"Error devuelto por servicio para {trans_id}: {result.get('message')}")
+                    guia = db.query(WHTransaction).filter(WHTransaction.Transaction == trans_id).first()
+                    if guia and guia.Status in ["pendiente", "error"] and not guia.necesita_aprobacion:
+                        guia.Status = "error"
+                        guia.envio_nube = "error"
+                        guia.nube_status_web = "error"
+                        db.commit()
+                await asyncio.sleep(1)
+            except Exception as e:
+                print(f"Excepción en envío masivo para guía {trans_id}: {e}")
+                try:
+                    guia = db.query(WHTransaction).filter(WHTransaction.Transaction == trans_id).first()
+                    if guia and guia.Status in ["pendiente", "error"] and not guia.necesita_aprobacion:
+                        guia.Status = "error"
+                        guia.envio_nube = "error"
+                        guia.nube_status_web = "error"
+                        db.commit()
+                except:
+                    db.rollback()
+    finally:
+        db.close()
 
 
 @router.post("/bulk-enviar", response_model=ResponseBase)
@@ -271,8 +279,7 @@ async def enviar_masivo_guias(
     background_tasks.add_task(
         procesar_envio_masivo_guias,
         request.ids,
-        request.usuario,
-        db
+        request.usuario
     )
     
     return ResponseBase(
