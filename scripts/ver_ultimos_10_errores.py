@@ -42,7 +42,12 @@ def ver_ultimos_10_errores():
         
         for v in ventas:
             fecha_env = datetime.fromtimestamp(v.fecha_envio, tz)
-            err_msg = v.error or v.sunat_soap_error or v.sunat_description or "Error desconocido"
+            err_msg = v.error or v.sunat_soap_error or v.sunat_description
+            if not err_msg:
+                if v.aceptada_por_sunat == 'false':
+                    err_msg = "Enviado a NubeFact (Pendiente de aceptación SUNAT)"
+                else:
+                    err_msg = "Error desconocido"
             all_errors.append({
                 "fecha": fecha_env,
                 "modulo": "VENTAS",
@@ -60,7 +65,12 @@ def ver_ultimos_10_errores():
         
         for g in guias:
             fecha_env = datetime.fromtimestamp(g.fecha_envio, tz)
-            err_msg = g.error or g.sunat_soap_error or g.sunat_description or "Error desconocido"
+            err_msg = g.error or g.sunat_soap_error or g.sunat_description
+            if not err_msg:
+                if g.aceptada_por_sunat == 'false':
+                    err_msg = "Enviado a NubeFact (Pendiente de aceptación SUNAT)"
+                else:
+                    err_msg = "Error desconocido"
             all_errors.append({
                 "fecha": fecha_env,
                 "modulo": "GUÍAS",

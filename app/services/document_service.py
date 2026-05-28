@@ -489,13 +489,22 @@ class DocumentService:
             item_total = det.TotalTaxLo if is_soles else (det.TotalTaxEx or 0)
             item_igv = round(max(0.0, item_total - item_subtotal), 2)
             
+            # Calcular valor y precio unitario real considerando descuentos
+            cantidad = det.Quantity or 0
+            if cantidad > 0:
+                valor_unitario = round(item_subtotal / cantidad, 6)
+                precio_unitario = round(item_total / cantidad, 6)
+            else:
+                valor_unitario = det.Price or 0
+                precio_unitario = det.PriceTax or 0
+            
             items.append(NubeFactItem(
                 unidad_de_medida=self._map_unidad(det.Unit),
                 codigo=det.ItemCode or "",
                 descripcion=det.Description or "",
-                cantidad=det.Quantity or 0,
-                valor_unitario=det.Price or 0,
-                precio_unitario=det.PriceTax or 0,
+                cantidad=cantidad,
+                valor_unitario=valor_unitario,
+                precio_unitario=precio_unitario,
                 subtotal=item_subtotal,
                 tipo_de_igv="1",
                 igv=item_igv,
