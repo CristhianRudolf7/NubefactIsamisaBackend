@@ -451,6 +451,10 @@ class DocumentService:
         if not documento:
             print(f"ERROR: Documento no encontrado o es un ticket")
             return {"success": False, "message": "Documento no encontrado o es un ticket (su serie inicia con T)"}
+            
+        if documento.Status == 'N':
+            print(f"ERROR: Documento {document_id} está anulado en el sistema (Status = N)")
+            return {"success": False, "message": "El documento está anulado en el sistema y no puede ser enviado"}
         
         print(f"Documento encontrado:")
         print(f"  - Serie: {documento.DocumentSerie}")

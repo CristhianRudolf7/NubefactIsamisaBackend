@@ -38,6 +38,7 @@ class DocumentWorker:
                 from sqlalchemy import func, or_
                 ventas_pendientes = db.query(ARDocument).filter(
                     or_(ARDocument.fe == None, ARDocument.fe == '', func.lower(ARDocument.fe) == 'pendiente'),
+                    or_(ARDocument.Status != 'N', ARDocument.Status == None),
                     # No filtrar estrictamente por Status == '1' ya que puede variar en la BD
                     # pero asegurarnos de que no necesite aprobación
                     ARDocument.necesita_aprobacion == False,

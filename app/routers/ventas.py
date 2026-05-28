@@ -70,6 +70,8 @@ async def listar_documentos(
     if estado:
         estado_lower = estado.lower()
         query = query.filter(func.lower(ARDocument.nube_status_web) == estado_lower)
+        if estado_lower == 'pendiente':
+            query = query.filter(or_(ARDocument.Status != 'N', ARDocument.Status == None))
     if ruc_cliente:
         query = query.filter(ARDocument.VendorRUC == ruc_cliente)
     if tipo_documento:
@@ -366,6 +368,11 @@ async def procesar_envio_masivo_ventas(ids: List[str], usuario: str):
         service = DocumentService(db)
         for doc_id in ids:
             try:
+                doc = db.query(ARDocument).filter(ARDocument.Document == doc_id).first()
+                if doc and doc.Status == 'N':
+                    print(f"Omitiendo documento {doc_id} por estar anulado (Status = N)")
+                    continue
+                
                 result = await service.enviar_documento_venta(doc_id, usuario)
                 if not result.get("success", False):
                     print(f"Error devuelto por servicio para {doc_id}: {result.get('message')}")

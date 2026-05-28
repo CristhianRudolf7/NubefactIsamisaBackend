@@ -247,8 +247,7 @@ async def procesar_envio_masivo_guias(ids: List[str], usuario: str):
                 if not result.get("success", False):
                     print(f"Error devuelto por servicio para {trans_id}: {result.get('message')}")
                     guia = db.query(WHTransaction).filter(WHTransaction.Transaction == trans_id).first()
-                    if guia and guia.Status in ["pendiente", "error"] and not guia.necesita_aprobacion:
-                        guia.Status = "error"
+                    if guia and (guia.envio_nube in ["pendiente", "error", "", None] or guia.nube_status_web in ["pendiente", "error", "", None]) and not guia.necesita_aprobacion:
                         guia.envio_nube = "error"
                         guia.nube_status_web = "error"
                         db.commit()
@@ -257,8 +256,7 @@ async def procesar_envio_masivo_guias(ids: List[str], usuario: str):
                 print(f"Excepción en envío masivo para guía {trans_id}: {e}")
                 try:
                     guia = db.query(WHTransaction).filter(WHTransaction.Transaction == trans_id).first()
-                    if guia and guia.Status in ["pendiente", "error"] and not guia.necesita_aprobacion:
-                        guia.Status = "error"
+                    if guia and (guia.envio_nube in ["pendiente", "error", "", None] or guia.nube_status_web in ["pendiente", "error", "", None]) and not guia.necesita_aprobacion:
                         guia.envio_nube = "error"
                         guia.nube_status_web = "error"
                         db.commit()

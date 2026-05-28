@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import func, cast, Date, Integer
+from sqlalchemy import func, cast, Date, Integer, or_
 from typing import Optional, Annotated
 from datetime import datetime, timedelta, date
 import logging
@@ -36,7 +36,8 @@ async def obtener_estadisticas(
     ).scalar()
     ventas_pendientes = db.query(func.count(ARDocument.Document)).filter(
         ARDocument.nube_status_web == "pendiente",
-        ~ARDocument.DocumentSerie.like('T%')
+        ~ARDocument.DocumentSerie.like('T%'),
+        or_(ARDocument.Status != 'N', ARDocument.Status == None)
     ).scalar()
     ventas_error = db.query(func.count(ARDocument.Document)).filter(
         ARDocument.nube_status_web == "error",
@@ -308,7 +309,11 @@ async def resumen_por_estado(
             ARDocument.nube_status_web.label("estado"),
             func.count(ARDocument.Document).label("cantidad")
         ).filter(
-            ~ARDocument.DocumentSerie.like('T%')
+            ~ARDocument.DocumentSerie.like('T%'),
+            or_(
+                ARDocument.nube_status_web != 'pendiente',
+                or_(ARDocument.Status != 'N', ARDocument.Status == None)
+            )
         ).group_by(ARDocument.nube_status_web).all()
         
     elif tipo == "retenciones":

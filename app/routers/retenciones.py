@@ -281,7 +281,7 @@ async def procesar_envio_masivo_retenciones(ids: List[str], usuario: str):
                 if not result.get("success", False):
                     print(f"Error devuelto por servicio para retención {ret_id}: {result.get('message')}")
                     ret = db.query(APRetencion).filter(APRetencion.Id == int(ret_id)).first()
-                    if ret and ret.status in ["pendiente", "error"] and not ret.necesita_aprobacion:
+                    if ret and (ret.status in ["pendiente", "error", "", None] or ret.nube_status_web in ["pendiente", "error", "", None]) and not ret.necesita_aprobacion:
                         ret.status = "error"
                         ret.nube_status_web = "error"
                         
@@ -301,7 +301,7 @@ async def procesar_envio_masivo_retenciones(ids: List[str], usuario: str):
                 # Marcar como error en la base de datos para que el usuario lo vea
                 try:
                     ret = db.query(APRetencion).filter(APRetencion.Id == int(ret_id)).first()
-                    if ret and ret.status in ["pendiente", "error"] and not ret.necesita_aprobacion:
+                    if ret and (ret.status in ["pendiente", "error", "", None] or ret.nube_status_web in ["pendiente", "error", "", None]) and not ret.necesita_aprobacion:
                         ret.status = "error"
                         ret.nube_status_web = "error"
                         
