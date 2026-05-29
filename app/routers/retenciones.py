@@ -645,6 +645,8 @@ async def descargar_pdf_retencion(
     retencion_id: int
 ):
     """Descarga el PDF de la retención"""
+    import httpx
+    
     retencion = db.query(APRetencion).filter(APRetencion.Id == retencion_id).first()
     if not retencion:
         raise HTTPException(status_code=404, detail="Retención no encontrada")
@@ -656,10 +658,22 @@ async def descargar_pdf_retencion(
     if not estado or not estado.Pdf:
         raise HTTPException(status_code=404, detail="PDF no disponible")
     
-    # Si es base64, decodificar; si es URL, redirigir
+    # Si es URL, descargarla en el servidor y transmitir los bytes
     if estado.Pdf.startswith('http'):
-        from fastapi.responses import RedirectResponse
-        return RedirectResponse(url=estado.Pdf)
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(estado.Pdf, timeout=15.0)
+                if resp.status_code == 200:
+                    filename = f"{retencion.Serie}-{retencion.Numero}.pdf"
+                    return Response(
+                        content=resp.content,
+                        media_type="application/pdf",
+                        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+                    )
+                else:
+                    raise HTTPException(status_code=502, detail="Error al descargar el PDF desde el servidor de facturación")
+        except Exception as e:
+            raise HTTPException(status_code=502, detail=f"Error de conexión al obtener PDF: {str(e)}")
     
     pdf_bytes = base64.b64decode(estado.Pdf)
     filename = f"{retencion.Serie}-{retencion.Numero}.pdf"

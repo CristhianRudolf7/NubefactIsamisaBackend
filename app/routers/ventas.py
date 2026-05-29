@@ -780,10 +780,23 @@ async def descargar_pdf(
     if not nube_response:
         raise HTTPException(status_code=404, detail="Documento no enviado a NubeFact")
 
-    # Si hay URL de NubeFact, redirigir
+    # Si hay URL de NubeFact, descargar el PDF y devolverlo
     if nube_response.enlace_del_pdf:
-        from fastapi.responses import RedirectResponse
-        return RedirectResponse(url=nube_response.enlace_del_pdf)
+        import httpx
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(nube_response.enlace_del_pdf, timeout=15.0)
+                if resp.status_code == 200:
+                    filename = f"{documento.DocumentSerie}-{documento.DocumentNo}.pdf"
+                    return Response(
+                        content=resp.content,
+                        media_type="application/pdf",
+                        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+                    )
+                else:
+                    raise HTTPException(status_code=502, detail="Error al descargar el PDF desde el servidor de facturación")
+        except Exception as e:
+            raise HTTPException(status_code=502, detail=f"Error de conexión al obtener PDF: {str(e)}")
 
     # Si hay base64, decodificar
     if nube_response.pdf_zip_base64:
