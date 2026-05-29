@@ -425,20 +425,19 @@ async def enviar_masivo_ventas(
     print(f"[BULK ENVIAR] Recibidos {len(request.ids)} IDs")
     print(f"[BULK ENVIAR] Muestra primeros 5: {request.ids[:5]}")
 
-    # Filtrar SOLO los tickets (series TVM*) - NO todos los que empiezan con T
-    # TC1DSSA, TC2DSSA, etc. son boletas/facturas válidas, NO tickets
-    ids_filtrados = [id_ for id_ in request.ids if not id_.upper().startswith('TVM')]
-    ids_omitidos = [id_ for id_ in request.ids if id_.upper().startswith('TVM')]
+    # Filtrar TODOS los documentos cuyo ID empieza con 'T' — son tickets y NO se envían a NubeFact
+    ids_filtrados = [id_ for id_ in request.ids if not id_.upper().startswith('T')]
+    ids_omitidos = [id_ for id_ in request.ids if id_.upper().startswith('T')]
     
-    print(f"[BULK ENVIAR] IDs válidos para enviar: {len(ids_filtrados)}")
-    print(f"[BULK ENVIAR] IDs omitidos (tickets TVM*): {len(ids_omitidos)}")
+    print(f"[BULK ENVIAR] IDs válidos para enviar (sin tickets): {len(ids_filtrados)}")
+    print(f"[BULK ENVIAR] IDs omitidos (tickets, empiezan con T): {len(ids_omitidos)}")
     if ids_omitidos:
         print(f"[BULK ENVIAR] Muestra IDs omitidos: {ids_omitidos[:3]}")
     
     if not ids_filtrados:
         return ResponseBase(
             success=True,
-            message="No hay documentos válidos para enviar (se omitieron los tickets)"
+            message="No hay documentos válidos para enviar (todos son tickets que empiezan con T)"
         )
     background_tasks.add_task(
         procesar_envio_masivo_ventas,
