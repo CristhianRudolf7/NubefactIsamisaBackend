@@ -67,7 +67,7 @@ async def listar_guias(
         query = query.filter(WHTransaction.DocumentNo == numero)
     if estado:
         estado_lower = estado.lower()
-        query = query.filter(func.lower(WHTransaction.nube_status_web) == estado_lower)
+        query = query.filter(WHTransaction.nube_status_web == estado)
     if ruc_destinatario:
         query = query.filter(WHTransaction.TargetPersonRUC == ruc_destinatario)
     

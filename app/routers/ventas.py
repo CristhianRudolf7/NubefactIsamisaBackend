@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, BackgroundTasks
 from fastapi.responses import Response
-from sqlalchemy import or_, func, text
+from sqlalchemy import or_, func, text, and_
 from sqlalchemy.orm import Session
 from typing import Optional, List, Annotated
 import base64
@@ -69,7 +69,7 @@ async def listar_documentos(
         query = query.filter(ARDocument.DocumentNo == numero)
     if estado:
         estado_lower = estado.lower()
-        query = query.filter(func.lower(ARDocument.nube_status_web) == estado_lower)
+        query = query.filter(ARDocument.nube_status_web == estado)
         if estado_lower == 'pendiente':
             query = query.filter(or_(ARDocument.Status != 'N', ARDocument.Status == None))
     if ruc_cliente:
@@ -121,7 +121,7 @@ async def listar_documentos(
             ])
         
         # Buscar cualquiera de los valores posibles
-        query = query.filter(func.lower(ARDocument.DocumentType).in_(posibles_valores))
+        query = query.filter(ARDocument.DocumentType.in_(posibles_valores))
     
     # Paginación (SQL Server requiere ORDER BY para OFFSET)
     total = query.count()
@@ -135,35 +135,41 @@ async def listar_documentos(
     # Obtener errores de NubeFact y hash para documentos
     errores_nube = {}
     hashes_nube = {}
-    series_numeros = [(d.DocumentSerie, d.DocumentNo, d.RejectionReason, d.Comments) for d in documentos if d.fe and d.fe.lower() in ['error', 'rechazado']]
-    # Obtener hash para todos los documentos enviados
-    for d in documentos:
-        if d.nube_status_web and d.nube_status_web.lower() not in ['pendiente', 'error', 'anulado']:
-            nube_resp = db.query(ARFENube).filter(
-                ARFENube.serie == d.DocumentSerie,
-                ARFENube.numero == d.DocumentNo
-            ).order_by(ARFENube.id.desc()).first()
-            if nube_resp and nube_resp.codigo_hash:
-                hashes_nube[(d.DocumentSerie, d.DocumentNo)] = nube_resp.codigo_hash
     
-    if series_numeros:
-        for serie, numero, rejection_reason, comments in series_numeros:
-            nube_resp = db.query(ARFENube).filter(
-                ARFENube.serie == serie,
-                ARFENube.numero == numero
-            ).order_by(ARFENube.id.desc()).first()
+    # 1. Obtener todas las respuestas de NubeFact para los documentos mostrados en una sola consulta (evita N+1 queries)
+    document_keys = {(d.DocumentSerie, d.DocumentNo) for d in documentos if d.DocumentSerie and d.DocumentNo}
+    nube_resps_map = {}
+    if document_keys:
+        filters = [and_(ARFENube.serie == s, ARFENube.numero == n) for s, n in document_keys]
+        nube_resps = db.query(ARFENube).filter(or_(*filters)).all()
+        for r in nube_resps:
+            key = (r.serie, r.numero)
+            # Conservar el registro más reciente (mayor id)
+            if key not in nube_resps_map or r.id > nube_resps_map[key].id:
+                nube_resps_map[key] = r
+                
+    # 2. Asignar hashes y mensajes de error en memoria
+    for d in documentos:
+        key = (d.DocumentSerie, d.DocumentNo)
+        nube_resp = nube_resps_map.get(key)
+        
+        # Obtener hash para todos los documentos enviados
+        if d.nube_status_web and d.nube_status_web.lower() not in ['pendiente', 'error', 'anulado']:
+            if nube_resp and nube_resp.codigo_hash:
+                hashes_nube[key] = nube_resp.codigo_hash
+                
+        # Obtener errores si el documento falló/fue rechazado
+        if d.fe and d.fe.lower() in ['error', 'rechazado']:
             if nube_resp:
                 error_msg = nube_resp.sunat_soap_error or nube_resp.error or nube_resp.sunat_description or None
                 if error_msg:
-                    errores_nube[(serie, numero)] = error_msg
+                    errores_nube[key] = error_msg
                 else:
-                    errores_nube[(serie, numero)] = rejection_reason or comments or "No hay detalles del error disponibles"
-            elif rejection_reason or comments:
-                # Si no hay respuesta de NubeFact, usar RejectionReason o Comments
-                errores_nube[(serie, numero)] = rejection_reason or comments
+                    errores_nube[key] = d.RejectionReason or d.Comments or "No hay detalles del error disponibles"
+            elif d.RejectionReason or d.Comments:
+                errores_nube[key] = d.RejectionReason or d.Comments
             else:
-                # Si no hay ninguna fuente de error, mostrar mensaje por defecto
-                errores_nube[(serie, numero)] = "No hay detalles del error disponibles"
+                errores_nube[key] = "No hay detalles del error disponibles"
     
     return ResponseBase(
         success=True,

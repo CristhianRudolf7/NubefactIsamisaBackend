@@ -35,9 +35,9 @@ class DocumentWorker:
             # 1. Procesar Ventas
             conf_ventas = configs.get('ventas')
             if conf_ventas and conf_ventas.modo == 'automatico' and conf_ventas.activo:
-                from sqlalchemy import func, or_
+                from sqlalchemy import or_
                 ventas_pendientes = db.query(ARDocument).filter(
-                    or_(ARDocument.fe == None, ARDocument.fe == '', func.lower(ARDocument.fe) == 'pendiente'),
+                    or_(ARDocument.fe == None, ARDocument.fe == '', ARDocument.fe == 'pendiente'),
                     or_(ARDocument.Status != 'N', ARDocument.Status == None),
                     # No filtrar estrictamente por Status == '1' ya que puede variar en la BD
                     # pero asegurarnos de que no necesite aprobación
@@ -57,9 +57,9 @@ class DocumentWorker:
             # 2. Procesar Guías
             conf_guias = configs.get('guias')
             if conf_guias and conf_guias.modo == 'automatico' and conf_guias.activo:
-                from sqlalchemy import func, or_
+                from sqlalchemy import or_
                 guias_pendientes = db.query(WHTransaction).filter(
-                    or_(WHTransaction.envio_nube == None, WHTransaction.envio_nube == '', func.lower(WHTransaction.envio_nube) == 'pendiente'),
+                    or_(WHTransaction.envio_nube == None, WHTransaction.envio_nube == '', WHTransaction.envio_nube == 'pendiente'),
                     WHTransaction.necesita_aprobacion == False
                 ).all()
                 
@@ -75,9 +75,9 @@ class DocumentWorker:
             # 3. Procesar Retenciones
             conf_ret = configs.get('retenciones')
             if conf_ret and conf_ret.modo == 'automatico' and conf_ret.activo:
-                from sqlalchemy import func, or_
+                from sqlalchemy import or_
                 retenciones_pendientes = db.query(APRetencion).filter(
-                    or_(APRetencion.status == None, APRetencion.status == '', func.lower(APRetencion.status) == 'pendiente'),
+                    or_(APRetencion.status == None, APRetencion.status == '', APRetencion.status == 'pendiente'),
                     APRetencion.necesita_aprobacion == False
                 ).all()
                 

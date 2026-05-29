@@ -66,7 +66,7 @@ async def listar_retenciones(
         query = query.filter(APRetencion.Numero == numero)
     if estado:
         estado_lower = estado.lower()
-        query = query.filter(func.lower(APRetencion.nube_status_web) == estado_lower)
+        query = query.filter(APRetencion.nube_status_web == estado)
     if ruc_proveedor:
         query = query.filter(APRetencion.VendorRuc == ruc_proveedor)
     
@@ -83,10 +83,20 @@ async def listar_retenciones(
     errores_status = {}
     retencion_ids = [r.Id for r in retenciones if r.status and r.status.lower() in ['error', 'rechazado']]
     if retencion_ids:
+        # Traer todos los estados de retención correspondientes de una sola vez
+        estados = db.query(APRetencionStatus).filter(
+            APRetencionStatus.Retencion.in_(retencion_ids)
+        ).all()
+        
+        # Agrupar por retención y quedarnos con el último estado (mayor id) en Python
+        estados_map = {}
+        for est in estados:
+            if est.Retencion not in estados_map or est.id > estados_map[est.Retencion].id:
+                estados_map[est.Retencion] = est
+                
+        # Construir el diccionario de errores en memoria
         for ret_id in retencion_ids:
-            ultimo_estado = db.query(APRetencionStatus).filter(
-                APRetencionStatus.Retencion == ret_id
-            ).order_by(APRetencionStatus.id.desc()).first()
+            ultimo_estado = estados_map.get(ret_id)
             if ultimo_estado:
                 error_msg = ultimo_estado.error or ultimo_estado.Soap or ultimo_estado.Descripcion or None
                 if error_msg:
