@@ -372,25 +372,34 @@ async def procesar_envio_masivo_ventas(ids: List[str], usuario: str):
     db: Session = SessionLocal()
     try:
         service = DocumentService(db)
-        for doc_id in ids:
+        print(f"\n{'='*60}")
+        print(f"[BULK VENTAS] Iniciando envío masivo de {len(ids)} documentos")
+        print(f"[BULK VENTAS] IDs recibidos (primeros 5): {ids[:5]}")
+        print(f"{'='*60}")
+        for idx, doc_id in enumerate(ids, 1):
             try:
                 doc = db.query(ARDocument).filter(ARDocument.Document == doc_id).first()
                 if doc and doc.Status == 'N':
-                    print(f"Omitiendo documento {doc_id} por estar anulado (Status = N)")
+                    print(f"[BULK VENTAS] [{idx}/{len(ids)}] Omitiendo {doc_id} (Status=N, anulado)")
                     continue
-                
+
+                estado_actual = doc.nube_status_web if doc else 'NO ENCONTRADO'
+                print(f"[BULK VENTAS] [{idx}/{len(ids)}] Procesando ID={doc_id} | Estado actual: {estado_actual}")
+
                 result = await service.enviar_documento_venta(doc_id, usuario)
                 if not result.get("success", False):
-                    print(f"Error devuelto por servicio para {doc_id}: {result.get('message')}")
+                    print(f"[BULK VENTAS] [{idx}/{len(ids)}] ERROR para {doc_id}: {result.get('message')}")
                     doc = db.query(ARDocument).filter(ARDocument.Document == doc_id).first()
                     if doc and doc.fe in ["", "pendiente", None] and not doc.necesita_aprobacion:
                         doc.fe = "error"
                         doc.nube_status_web = "error"
                         db.commit()
+                else:
+                    print(f"[BULK VENTAS] [{idx}/{len(ids)}] OK para {doc_id}: {result.get('message', 'enviado')}")
                 # Esperar 1 segundo entre envíos para no saturar
                 await asyncio.sleep(1)
             except Exception as e:
-                print(f"Excepción en envío masivo para {doc_id}: {e}")
+                print(f"[BULK VENTAS] [{idx}/{len(ids)}] EXCEPCION para {doc_id}: {e}")
                 try:
                     doc = db.query(ARDocument).filter(ARDocument.Document == doc_id).first()
                     if doc and doc.fe in ["", "pendiente", None] and not doc.necesita_aprobacion:
@@ -399,6 +408,7 @@ async def procesar_envio_masivo_ventas(ids: List[str], usuario: str):
                         db.commit()
                 except:
                     db.rollback()
+        print(f"[BULK VENTAS] Finalizado. {len(ids)} documentos procesados.")
     finally:
         db.close()
 
