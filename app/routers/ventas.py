@@ -421,8 +421,20 @@ async def enviar_masivo_ventas(
     current_user: Annotated[User, Depends(require_admin)]
 ):
     """Inicia el proceso de envío masivo en segundo plano"""
-    # Filtrar IDs que corresponden a tickets (inician con 'T')
-    ids_filtrados = [id_ for id_ in request.ids if not id_.startswith('T')]
+    print(f"\n{'='*60}")
+    print(f"[BULK ENVIAR] Recibidos {len(request.ids)} IDs")
+    print(f"[BULK ENVIAR] Muestra primeros 5: {request.ids[:5]}")
+
+    # Filtrar SOLO los tickets (series TVM*) - NO todos los que empiezan con T
+    # TC1DSSA, TC2DSSA, etc. son boletas/facturas válidas, NO tickets
+    ids_filtrados = [id_ for id_ in request.ids if not id_.upper().startswith('TVM')]
+    ids_omitidos = [id_ for id_ in request.ids if id_.upper().startswith('TVM')]
+    
+    print(f"[BULK ENVIAR] IDs válidos para enviar: {len(ids_filtrados)}")
+    print(f"[BULK ENVIAR] IDs omitidos (tickets TVM*): {len(ids_omitidos)}")
+    if ids_omitidos:
+        print(f"[BULK ENVIAR] Muestra IDs omitidos: {ids_omitidos[:3]}")
+    
     if not ids_filtrados:
         return ResponseBase(
             success=True,
@@ -436,8 +448,9 @@ async def enviar_masivo_ventas(
     
     return ResponseBase(
         success=True,
-        message=f"Se ha iniciado el proceso de envío para {len(request.ids)} documentos"
+        message=f"Se ha iniciado el proceso de envío para {len(ids_filtrados)} documentos ({len(ids_omitidos)} tickets omitidos)"
     )
+
 
 
 @router.put("/{document_id}", response_model=ResponseBase)
