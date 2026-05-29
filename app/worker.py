@@ -96,6 +96,19 @@ class DocumentWorker:
             db.close()
             self.is_running = False
 
+    async def sync_sunat_status_job(self):
+        """Tarea programada para sincronizar estados de SUNAT"""
+        logger.info("Iniciando sincronización programada de estados SUNAT...")
+        db = SessionLocal()
+        try:
+            service = DocumentService(db)
+            result = await service.sync_sunat_statuses()
+            logger.info(f"Sincronización SUNAT completada: {result}")
+        except Exception as e:
+            logger.error(f"Error en tarea sync_sunat_status_job: {e}")
+        finally:
+            db.close()
+
     def start(self):
         """Inicia el scheduler del worker"""
         logger.info("Iniciando DocumentWorker (revisión cada 60s)")
@@ -104,6 +117,14 @@ class DocumentWorker:
             "interval",
             seconds=60,
             id="check_pending_docs"
+        )
+        # Sincronización diaria a las 6:00 am
+        self.scheduler.add_job(
+            self.sync_sunat_status_job,
+            "cron",
+            hour=6,
+            minute=0,
+            id="sync_sunat_status_daily"
         )
         self.scheduler.start()
 

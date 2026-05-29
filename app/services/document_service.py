@@ -658,3 +658,199 @@ class DocumentService:
             "KG": "KG",
         }
         return unidad_map.get(unidad, "NIU")
+
+    async def sync_sunat_statuses(self) -> Dict[str, Any]:
+        """Sincroniza el estado de SUNAT de comprobantes y guías enviados en los últimos 7 días pero pendientes de aceptación"""
+        from ..schemas.nubefact import NubeFactConsultRequest
+        from datetime import datetime, timedelta
+        
+        limit_date = datetime.now() - timedelta(days=7)
+        limit_timestamp = limit_date.timestamp()
+        
+        # 1. Ventas
+        print("Sincronizando estado SUNAT de Ventas...")
+        ventas_pendientes = self.db.query(ARFENube).filter(
+            ARFENube.aceptada_por_sunat == 'false',
+            ARFENube.fecha_envio >= limit_timestamp,
+            ARFENube.error == None,
+            ARFENube.sunat_soap_error == None
+        ).all()
+        
+        ventas_actualizadas = 0
+        ventas_rechazadas = 0
+        
+        for r in ventas_pendientes:
+            # Buscar tipo de comprobante en ARDocument
+            documento = self.db.query(ARDocument).filter(
+                ARDocument.DocumentSerie == r.serie,
+                ARDocument.DocumentNo == r.numero
+            ).first()
+            
+            if not documento:
+                continue
+                
+            doc_type_clean = (documento.DocumentType or "").replace(" ", "").upper()
+            tipo_doc_map = {
+                "LIMADSASFACTURA": 1,
+                "LIMADSASBOLETA": 2,
+                "LIMADSASCREDITO": 3,
+                "LIMADSASDEBITO": 4,
+            }
+            tipo_comprobante = tipo_doc_map.get(doc_type_clean)
+            if not tipo_comprobante:
+                continue
+                
+            try:
+                # Consultar a NubeFact
+                consult_request = NubeFactConsultRequest(
+                    tipo_de_comprobante=tipo_comprobante,
+                    serie=r.serie,
+                    numero=r.numero
+                )
+                response = await nubefact_client.consultar_comprobante(consult_request)
+                
+                if response.success:
+                    if response.aceptada_por_sunat:
+                        r.aceptada_por_sunat = "true"
+                        r.enlace_del_pdf = response.enlace_del_pdf or r.enlace_del_pdf
+                        r.enlace_del_xml = response.enlace_del_xml or r.enlace_del_xml
+                        r.enlace_del_cdr = response.enlace_del_cdr or r.enlace_del_cdr
+                        r.sunat_description = response.sunat_description or r.sunat_description
+                        r.sunat_note = response.sunat_note or r.sunat_note
+                        r.sunat_responsecode = response.sunat_responsecode or r.sunat_responsecode
+                        r.pdf_zip_base64 = response.pdf_zip_base64 or r.pdf_zip_base64
+                        r.xml_zip_base64 = response.xml_zip_base64 or r.xml_zip_base64
+                        r.cdr_zip_base64 = response.cdr_zip_base64 or r.cdr_zip_base64
+                        r.codigo_hash = response.codigo_hash or r.codigo_hash
+                        
+                        documento.fe = "aceptada"
+                        documento.nube_status_web = "aceptado"
+                        ventas_actualizadas += 1
+                    
+                    elif response.errors or (response.sunat_description and "rechazad" in response.sunat_description.lower()):
+                        # Si fue rechazado por SUNAT
+                        r.aceptada_por_sunat = "false"
+                        r.error = ", ".join(response.errors) if response.errors else response.sunat_description
+                        r.sunat_description = response.sunat_description or r.sunat_description
+                        
+                        # Actualizar estado a rechazado en el ERP
+                        documento.fe = "rechazado"
+                        documento.nube_status_web = "rechazado"
+                        if response.errors:
+                            documento.RejectionReason = ", ".join(response.errors)
+                        elif response.sunat_description:
+                            documento.RejectionReason = response.sunat_description
+                            
+                        # Notificar error por WhatsApp
+                        try:
+                            notification_service = NotificationService(self.db)
+                            await notification_service.notificar_error_documento(
+                                tipo_modulo="ventas",
+                                tipo_documento=documento.DocumentType,
+                                serie=documento.DocumentSerie,
+                                numero=documento.DocumentNo,
+                                error=r.error,
+                                documento_id=documento.Document
+                            )
+                        except Exception as e:
+                            print(f"Error al enviar notificación de rechazo de venta: {e}")
+                            
+                        ventas_rechazadas += 1
+                
+                # Esperar 0.5 segundos entre consultas
+                import asyncio
+                await asyncio.sleep(0.5)
+                
+            except Exception as e:
+                print(f"Error consultando documento {r.serie}-{r.numero}: {e}")
+                
+        # 2. Guías
+        print("Sincronizando estado SUNAT de Guías...")
+        guias_pendientes = self.db.query(WHTransactionNube).filter(
+            WHTransactionNube.aceptada_por_sunat == 'false',
+            WHTransactionNube.fecha_envio >= limit_timestamp,
+            WHTransactionNube.error == None,
+            WHTransactionNube.sunat_soap_error == None
+        ).all()
+        
+        guias_actualizadas = 0
+        guias_rechazadas = 0
+        
+        for r in guias_pendientes:
+            guia = self.db.query(WHTransaction).filter(
+                WHTransaction.Transaction == r.TransactionId
+            ).first()
+            
+            if not guia:
+                continue
+                
+            try:
+                # Consultar a NubeFact
+                consult_request = NubeFactConsultRequest(
+                    tipo_de_comprobante=7,
+                    serie=r.serie,
+                    numero=r.numero
+                )
+                response = await nubefact_client.consultar_guia(consult_request)
+                
+                if response.success:
+                    if response.aceptada_por_sunat:
+                        r.aceptada_por_sunat = "true"
+                        r.enlace_del_pdf = response.enlace_del_pdf or r.enlace_del_pdf
+                        r.enlace_del_xml = response.enlace_del_xml or r.enlace_del_xml
+                        r.enlace_del_cdr = response.enlace_del_cdr or r.enlace_del_cdr
+                        r.sunat_description = response.sunat_description or r.sunat_description
+                        r.sunat_note = response.sunat_note or r.sunat_note
+                        r.sunat_responsecode = response.sunat_responsecode or r.sunat_responsecode
+                        r.pdf_zip_base64 = response.pdf_zip_base64 or r.pdf_zip_base64
+                        r.xml_zip_base64 = response.xml_zip_base64 or r.xml_zip_base64
+                        r.cdr_zip_base64 = response.cdr_zip_base64 or r.cdr_zip_base64
+                        r.codigo_hash = response.codigo_hash or r.codigo_hash
+                        
+                        guia.envio_nube = "aceptada"
+                        guia.nube_status_web = "aceptado"
+                        guias_actualizadas += 1
+                        
+                    elif response.errors or (response.sunat_description and "rechazad" in response.sunat_description.lower()):
+                        # Si fue rechazado por SUNAT
+                        r.aceptada_por_sunat = "false"
+                        r.error = ", ".join(response.errors) if response.errors else response.sunat_description
+                        r.sunat_description = response.sunat_description or r.sunat_description
+                        
+                        guia.envio_nube = "rechazado"
+                        guia.nube_status_web = "rechazado"
+                        if response.errors:
+                            guia.RejectionReason = ", ".join(response.errors)
+                        elif response.sunat_description:
+                            guia.RejectionReason = response.sunat_description
+                            
+                        # Notificar error por WhatsApp
+                        try:
+                            notification_service = NotificationService(self.db)
+                            await notification_service.notificar_error_documento(
+                                tipo_modulo="guias",
+                                tipo_documento="guia",
+                                serie=guia.DocumentSerie,
+                                numero=guia.DocumentNo,
+                                error=r.error,
+                                documento_id=guia.Transaction
+                            )
+                        except Exception as e:
+                            print(f"Error al enviar notificación de rechazo de guía: {e}")
+                            
+                        guias_rechazadas += 1
+                        
+                # Esperar 0.5 segundos entre consultas
+                import asyncio
+                await asyncio.sleep(0.5)
+                
+            except Exception as e:
+                print(f"Error consultando guía {r.serie}-{r.numero}: {e}")
+                
+        self.db.commit()
+        return {
+            "ventas_actualizadas": ventas_actualizadas,
+            "ventas_rechazadas": ventas_rechazadas,
+            "guias_actualizadas": guias_actualizadas,
+            "guias_rechazadas": guias_rechazadas
+        }
