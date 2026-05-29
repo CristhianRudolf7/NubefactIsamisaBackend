@@ -179,13 +179,9 @@ class DocumentService:
         
         # Actualizar estado
         if response.success:
-            # Para guías, SUNAT puede tardar en aceptar. Solo marcar como aceptada si SUNAT ya respondió
-            if response.aceptada_por_sunat:
-                guia.envio_nube = "aceptada"
-                guia.nube_status_web = "aceptado"
-            else:
-                guia.envio_nube = "enviado"  # Enviado a NubeFact, pendiente de aceptación SUNAT
-                guia.nube_status_web = "enviado"
+            # Si NubeFact procesó con éxito, se considera aceptado
+            guia.envio_nube = "aceptada"
+            guia.nube_status_web = "aceptado"
 
             # Guardar respuesta
             nube_record = WHTransactionNube(
@@ -369,12 +365,9 @@ class DocumentService:
         
         # Actualizar estado
         if response.success:
-            if response.aceptada_por_sunat:
-                retencion.status = "aceptada"
-                retencion.nube_status_web = "aceptado"
-            else:
-                retencion.status = "enviado"
-                retencion.nube_status_web = "enviado"
+            # Si NubeFact procesó con éxito, se considera aceptado
+            retencion.status = "aceptada"
+            retencion.nube_status_web = "aceptado"
         else:
             retencion.status = "error"
             retencion.nube_status_web = "error"
@@ -589,12 +582,9 @@ class DocumentService:
         
         # Actualizar estado
         if response.success:
-            if response.aceptada_por_sunat:
-                documento.fe = "aceptada"
-                documento.nube_status_web = "aceptado"
-            else:
-                documento.fe = "enviado"
-                documento.nube_status_web = "enviado"
+            # Si NubeFact procesó con éxito, se considera aceptado
+            documento.fe = "aceptada"
+            documento.nube_status_web = "aceptado"
         else:
             documento.fe = "error"
             documento.nube_status_web = "error"
