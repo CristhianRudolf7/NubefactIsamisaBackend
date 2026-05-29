@@ -476,20 +476,23 @@ class DocumentService:
             print(f"    Cantidad: {det.Quantity}, Precio: {det.Price}, Total: {det.Total}")
             
             # En la BD: 
-            # - det.Total es el subtotal (neto sin IGV)
-            # - det.TotalTaxLo/Ex es el total con IGV
+            # - det.Total es el subtotal (neto sin IGV) y ya tiene el descuento aplicado
             item_subtotal = det.Total or 0
-            item_total = det.TotalTaxLo if is_soles else (det.TotalTaxEx or 0)
-            item_igv = round(max(0.0, item_total - item_subtotal), 2)
+            cantidad = det.Quantity or 0
             
             # Calcular valor y precio unitario real considerando descuentos
-            cantidad = det.Quantity or 0
             if cantidad > 0:
                 valor_unitario = round(item_subtotal / cantidad, 6)
-                precio_unitario = round(item_total / cantidad, 6)
+                # Calculamos el precio unitario aplicando el IGV (18%) al valor unitario descontado
+                precio_unitario = round(valor_unitario * 1.18, 6)
+                # Recalculamos el total de la línea consistente con el precio unitario
+                item_total = round(precio_unitario * cantidad, 2)
             else:
                 valor_unitario = det.Price or 0
-                precio_unitario = det.PriceTax or 0
+                precio_unitario = round(valor_unitario * 1.18, 6)
+                item_total = 0.0
+                
+            item_igv = round(max(0.0, item_total - item_subtotal), 2)
             
             items.append(NubeFactItem(
                 unidad_de_medida=self._map_unidad(det.Unit),
