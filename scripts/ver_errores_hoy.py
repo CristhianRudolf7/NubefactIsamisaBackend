@@ -85,8 +85,7 @@ def ver_errores():
             ARFENube.fecha_envio <= end_ts,
             (
                 (ARFENube.error != None) & (ARFENube.error != '') |
-                (ARFENube.sunat_soap_error != None) & (ARFENube.sunat_soap_error != '') |
-                (ARFENube.aceptada_por_sunat == 'false')
+                (ARFENube.sunat_soap_error != None) & (ARFENube.sunat_soap_error != '')
             )
         )
         ventas_errores = ventas_query.order_by(ARFENube.fecha_envio.desc()).all()
@@ -112,8 +111,7 @@ def ver_errores():
             WHTransactionNube.fecha_envio <= end_ts,
             (
                 (WHTransactionNube.error != None) & (WHTransactionNube.error != '') |
-                (WHTransactionNube.sunat_soap_error != None) & (WHTransactionNube.sunat_soap_error != '') |
-                (WHTransactionNube.aceptada_por_sunat == 'false')
+                (WHTransactionNube.sunat_soap_error != None) & (WHTransactionNube.sunat_soap_error != '')
             )
         )
         guias_errores = guias_query.order_by(WHTransactionNube.fecha_envio.desc()).all()

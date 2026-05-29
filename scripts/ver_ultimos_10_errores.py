@@ -36,8 +36,7 @@ def ver_ultimos_10_errores():
         # 1. Ventas
         ventas = db.query(ARFENube).filter(
             (ARFENube.error != None) & (ARFENube.error != '') |
-            (ARFENube.sunat_soap_error != None) & (ARFENube.sunat_soap_error != '') |
-            (ARFENube.aceptada_por_sunat == 'false')
+            (ARFENube.sunat_soap_error != None) & (ARFENube.sunat_soap_error != '')
         ).order_by(ARFENube.fecha_envio.desc()).limit(10).all()
         
         for v in ventas:
@@ -59,8 +58,7 @@ def ver_ultimos_10_errores():
         # 2. Guías
         guias = db.query(WHTransactionNube).filter(
             (WHTransactionNube.error != None) & (WHTransactionNube.error != '') |
-            (WHTransactionNube.sunat_soap_error != None) & (WHTransactionNube.sunat_soap_error != '') |
-            (WHTransactionNube.aceptada_por_sunat == 'false')
+            (WHTransactionNube.sunat_soap_error != None) & (WHTransactionNube.sunat_soap_error != '')
         ).order_by(WHTransactionNube.fecha_envio.desc()).limit(10).all()
         
         for g in guias:
