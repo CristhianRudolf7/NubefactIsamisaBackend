@@ -279,7 +279,7 @@ async def enviar_masivo_guias(
 ):
     """Inicia el proceso de envío masivo de guías en segundo plano usando filtros"""
     query = db.query(WHTransaction.Transaction).filter(
-        or_(WHTransaction.envio_nube == None, WHTransaction.envio_nube == '', WHTransaction.envio_nube == 'pendiente'),
+        or_(WHTransaction.nube_status_web == None, WHTransaction.nube_status_web == '', WHTransaction.nube_status_web == 'pendiente'),
         WHTransaction.necesita_aprobacion == False
     )
     if request.fecha_inicio:

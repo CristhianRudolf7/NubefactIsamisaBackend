@@ -347,7 +347,7 @@ async def enviar_masivo_retenciones(
 ):
     """Inicia el proceso de envío masivo de retenciones en segundo plano usando filtros"""
     query = db.query(APRetencion.Id).filter(
-        or_(APRetencion.status == None, APRetencion.status == '', APRetencion.status == 'pendiente'),
+        or_(APRetencion.nube_status_web == None, APRetencion.nube_status_web == '', APRetencion.nube_status_web == 'pendiente'),
         APRetencion.necesita_aprobacion == False
     )
     if request.fecha_inicio:

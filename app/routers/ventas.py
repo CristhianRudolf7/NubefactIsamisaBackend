@@ -425,7 +425,7 @@ async def enviar_masivo_ventas(
     print(f"[BULK ENVIAR VENTAS] Iniciando consulta con filtros: inicio={request.fecha_inicio}, fin={request.fecha_fin}, serie={request.serie}")
 
     query = db.query(ARDocument.Document).filter(
-        or_(ARDocument.fe == None, ARDocument.fe == '', ARDocument.fe == 'pendiente'),
+        or_(ARDocument.nube_status_web == None, ARDocument.nube_status_web == '', ARDocument.nube_status_web == 'pendiente'),
         or_(ARDocument.Status != 'N', ARDocument.Status == None),
         ARDocument.necesita_aprobacion == False,
         ~ARDocument.DocumentSerie.like('T%'),
