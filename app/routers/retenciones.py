@@ -285,20 +285,14 @@ async def procesar_envio_masivo_retenciones(ids: List[str], usuario: str):
     db: Session = SessionLocal()
     try:
         service = DocumentService(db)
-        print(f"\n{'='*60}")
         print(f"[BULK RETENCIONES] Iniciando envío masivo de {len(ids)} retenciones")
-        print(f"[BULK RETENCIONES] IDs recibidos (primeros 5): {ids[:5]}")
-        print(f"{'='*60}")
         for idx, ret_id in enumerate(ids, 1):
+            ret_check = db.query(APRetencion).filter(APRetencion.Id == int(ret_id)).first()
+            doc_info = f"{ret_check.Serie}-{ret_check.Numero}" if ret_check else ret_id
             try:
-                # Verificar estado actual antes de enviar
-                ret_check = db.query(APRetencion).filter(APRetencion.Id == int(ret_id)).first()
-                estado_actual = ret_check.nube_status_web if ret_check else 'NO ENCONTRADO'
-                print(f"[BULK RETENCIONES] [{idx}/{len(ids)}] Procesando ID={ret_id} | Estado actual: {estado_actual}")
-                
                 result = await service.enviar_retencion(int(ret_id), usuario)
                 if not result.get("success", False):
-                    print(f"[BULK RETENCIONES] [{idx}/{len(ids)}] ERROR para ID={ret_id}: {result.get('message')}")
+                    print(f"envio {idx}/{len(ids)} {doc_info}: ERROR - {result.get('message')}")
                     ret = db.query(APRetencion).filter(APRetencion.Id == int(ret_id)).first()
                     if ret and (ret.status in ["pendiente", "error", "", None] or ret.nube_status_web in ["pendiente", "error", "", None]) and not ret.necesita_aprobacion:
                         ret.status = "error"
@@ -313,11 +307,12 @@ async def procesar_envio_masivo_retenciones(ids: List[str], usuario: str):
                         )
                         db.add(status_record)
                         db.commit()
-                print(f"[BULK RETENCIONES] [{idx}/{len(ids)}] OK para ID={ret_id}: {result.get('message', 'enviado')}")
+                else:
+                    print(f"envio {idx}/{len(ids)} {doc_info}: OK")
                 await asyncio.sleep(1)
             except Exception as e:
                 error_msg = str(e)
-                print(f"[BULK RETENCIONES] [{idx}/{len(ids)}] EXCEPCION para ID={ret_id}: {error_msg}")
+                print(f"envio {idx}/{len(ids)} {doc_info}: EXCEPCION - {error_msg}")
                 # Marcar como error en la base de datos para que el usuario lo vea
                 try:
                     ret = db.query(APRetencion).filter(APRetencion.Id == int(ret_id)).first()
@@ -338,6 +333,7 @@ async def procesar_envio_masivo_retenciones(ids: List[str], usuario: str):
                 except Exception as db_e:
                     print(f"Error al guardar estado de error en DB: {db_e}")
                     db.rollback()
+        print(f"[BULK RETENCIONES] Finalizado. {len(ids)} retenciones procesadas.")
     finally:
         db.close()
 

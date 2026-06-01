@@ -241,27 +241,31 @@ async def procesar_envio_masivo_guias(ids: List[str], usuario: str):
     db: Session = SessionLocal()
     try:
         service = DocumentService(db)
-        for trans_id in ids:
+        print(f"[BULK GUIAS] Iniciando envío masivo de {len(ids)} guías")
+        for idx, trans_id in enumerate(ids, 1):
+            guia = db.query(WHTransaction).filter(WHTransaction.Transaction == trans_id).first()
+            doc_info = f"{guia.DocumentSerie}-{guia.DocumentNo}" if guia else trans_id
             try:
                 result = await service.enviar_guia(trans_id, usuario)
                 if not result.get("success", False):
-                    print(f"Error devuelto por servicio para {trans_id}: {result.get('message')}")
-                    guia = db.query(WHTransaction).filter(WHTransaction.Transaction == trans_id).first()
+                    print(f"envio {idx}/{len(ids)} {doc_info}: ERROR - {result.get('message')}")
                     if guia and (guia.envio_nube in ["pendiente", "error", "", None] or guia.nube_status_web in ["pendiente", "error", "", None]) and not guia.necesita_aprobacion:
                         guia.envio_nube = "error"
                         guia.nube_status_web = "error"
                         db.commit()
+                else:
+                    print(f"envio {idx}/{len(ids)} {doc_info}: OK")
                 await asyncio.sleep(1)
             except Exception as e:
-                print(f"Excepción en envío masivo para guía {trans_id}: {e}")
+                print(f"envio {idx}/{len(ids)} {doc_info}: EXCEPCION - {e}")
                 try:
-                    guia = db.query(WHTransaction).filter(WHTransaction.Transaction == trans_id).first()
                     if guia and (guia.envio_nube in ["pendiente", "error", "", None] or guia.nube_status_web in ["pendiente", "error", "", None]) and not guia.necesita_aprobacion:
                         guia.envio_nube = "error"
                         guia.nube_status_web = "error"
                         db.commit()
                 except:
                     db.rollback()
+        print(f"[BULK GUIAS] Finalizado. {len(ids)} guías procesadas.")
     finally:
         db.close()
 
