@@ -13,7 +13,7 @@ from ..models.guia_response import WHTransactionNube
 import json
 from ..models.auditoria import Auditoria
 from ..models.user import User, UserRole
-from ..schemas.common import ResponseBase, BulkEnviarRequest
+from ..schemas.common import ResponseBase, BulkEnviarRequest, BulkEnviarFiltrosRequest
 from ..schemas.guias import GuiaRemisionSchema, GuiaRemisionFilter
 from ..services.document_service import DocumentService
 from ..services.auditoria_service import AuditoriaService
@@ -268,21 +268,42 @@ async def procesar_envio_masivo_guias(ids: List[str], usuario: str):
 
 @router.post("/bulk-enviar", response_model=ResponseBase)
 async def enviar_masivo_guias(
-    request: BulkEnviarRequest,
+    request: BulkEnviarFiltrosRequest,
     background_tasks: BackgroundTasks,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_admin)]
 ):
-    """Inicia el proceso de envío masivo de guías"""
+    """Inicia el proceso de envío masivo de guías en segundo plano usando filtros"""
+    query = db.query(WHTransaction.Transaction).filter(
+        or_(WHTransaction.envio_nube == None, WHTransaction.envio_nube == '', WHTransaction.envio_nube == 'pendiente'),
+        WHTransaction.necesita_aprobacion == False
+    )
+    if request.fecha_inicio:
+        query = query.filter(WHTransaction.TransactionDate >= parse_date_filter(request.fecha_inicio, is_end_date=False))
+    if request.fecha_fin:
+        query = query.filter(WHTransaction.TransactionDate <= parse_date_filter(request.fecha_fin, is_end_date=True))
+    if request.serie:
+        query = query.filter(WHTransaction.DocumentSerie == request.serie)
+        
+    ids = [str(r[0]) for r in query.all()]
+    
+    if not ids:
+        return ResponseBase(
+            success=True,
+            message="No hay guías pendientes para enviar en este rango/serie",
+            data={"count": 0}
+        )
+        
     background_tasks.add_task(
         procesar_envio_masivo_guias,
-        request.ids,
+        ids,
         request.usuario
     )
     
     return ResponseBase(
         success=True,
-        message=f"Se ha iniciado el proceso de envío para {len(request.ids)} guías"
+        message=f"Se ha iniciado el proceso de envío para {len(ids)} guías",
+        data={"count": len(ids)}
     )
 
 

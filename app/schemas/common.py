@@ -52,3 +52,12 @@ class BulkEnviarRequest(BaseModel):
     """Request para envío masivo de documentos"""
     ids: List[Any]
     usuario: str
+
+
+class BulkEnviarFiltrosRequest(BaseModel):
+    """Request para envío masivo de documentos con filtros"""
+    fecha_inicio: Optional[str] = None
+    fecha_fin: Optional[str] = None
+    serie: Optional[str] = None
+    usuario: str
+

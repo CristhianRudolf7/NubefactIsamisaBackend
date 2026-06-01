@@ -14,7 +14,7 @@ from sqlalchemy.orm import joinedload
 import json
 from ..models.auditoria import Auditoria
 from ..models.user import User, UserRole
-from ..schemas.common import ResponseBase, BulkEnviarRequest
+from ..schemas.common import ResponseBase, BulkEnviarRequest, BulkEnviarFiltrosRequest
 from ..schemas.ventas import DocumentoVentaSchema, DocumentoVentaFilter, DocumentoVentaUpdate
 from ..services.document_service import DocumentService
 from ..services.auditoria_service import AuditoriaService
@@ -420,39 +420,50 @@ async def procesar_envio_masivo_ventas(ids: List[str], usuario: str):
 
 @router.post("/bulk-enviar", response_model=ResponseBase)
 async def enviar_masivo_ventas(
-    request: BulkEnviarRequest,
+    request: BulkEnviarFiltrosRequest,
     background_tasks: BackgroundTasks,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_admin)]
 ):
-    """Inicia el proceso de envío masivo en segundo plano"""
+    """Inicia el proceso de envío masivo en segundo plano usando filtros"""
     print(f"\n{'='*60}")
-    print(f"[BULK ENVIAR] Recibidos {len(request.ids)} IDs")
-    print(f"[BULK ENVIAR] Muestra primeros 5: {request.ids[:5]}")
+    print(f"[BULK ENVIAR VENTAS] Iniciando consulta con filtros: inicio={request.fecha_inicio}, fin={request.fecha_fin}, serie={request.serie}")
 
-    # Filtrar TODOS los documentos cuyo ID empieza con 'T' — son tickets y NO se envían a NubeFact
-    ids_filtrados = [id_ for id_ in request.ids if not id_.upper().startswith('T')]
-    ids_omitidos = [id_ for id_ in request.ids if id_.upper().startswith('T')]
-    
-    print(f"[BULK ENVIAR] IDs válidos para enviar (sin tickets): {len(ids_filtrados)}")
-    print(f"[BULK ENVIAR] IDs omitidos (tickets, empiezan con T): {len(ids_omitidos)}")
-    if ids_omitidos:
-        print(f"[BULK ENVIAR] Muestra IDs omitidos: {ids_omitidos[:3]}")
-    
-    if not ids_filtrados:
+    query = db.query(ARDocument.Document).filter(
+        or_(ARDocument.fe == None, ARDocument.fe == '', ARDocument.fe == 'pendiente'),
+        or_(ARDocument.Status != 'N', ARDocument.Status == None),
+        ARDocument.necesita_aprobacion == False,
+        ~ARDocument.DocumentSerie.like('T%'),
+        ~ARDocument.Document.like('T%')
+    )
+
+    if request.fecha_inicio:
+        query = query.filter(ARDocument.DocumentDate >= parse_date_filter(request.fecha_inicio, is_end_date=False))
+    if request.fecha_fin:
+        query = query.filter(ARDocument.DocumentDate <= parse_date_filter(request.fecha_fin, is_end_date=True))
+    if request.serie:
+        query = query.filter(ARDocument.DocumentSerie == request.serie)
+
+    ids = [str(r[0]) for r in query.all()]
+    print(f"[BULK ENVIAR VENTAS] Encontrados {len(ids)} documentos para enviar")
+
+    if not ids:
         return ResponseBase(
             success=True,
-            message="No hay documentos válidos para enviar (todos son tickets que empiezan con T)"
+            message="No hay documentos pendientes para enviar en este rango/serie",
+            data={"count": 0}
         )
+
     background_tasks.add_task(
         procesar_envio_masivo_ventas,
-        ids_filtrados,
+        ids,
         request.usuario
     )
     
     return ResponseBase(
         success=True,
-        message=f"Se ha iniciado el proceso de envío para {len(ids_filtrados)} documentos ({len(ids_omitidos)} tickets omitidos)"
+        message=f"Se ha iniciado el proceso de envío para {len(ids)} documentos",
+        data={"count": len(ids)}
     )
 
 

@@ -12,7 +12,7 @@ from ..models.retenciones import APRetencion, APRetencionDetail, APRetencionStat
 import json
 from ..models.auditoria import Auditoria
 from ..models.user import User, UserRole
-from ..schemas.common import ResponseBase, BulkEnviarRequest
+from ..schemas.common import ResponseBase, BulkEnviarRequest, BulkEnviarFiltrosRequest
 from ..schemas.retenciones import RetencionSchema, RetencionFilter
 from ..services.document_service import DocumentService
 from ..services.auditoria_service import AuditoriaService
@@ -344,21 +344,42 @@ async def procesar_envio_masivo_retenciones(ids: List[str], usuario: str):
 
 @router.post("/bulk-enviar", response_model=ResponseBase)
 async def enviar_masivo_retenciones(
-    request: BulkEnviarRequest,
+    request: BulkEnviarFiltrosRequest,
     background_tasks: BackgroundTasks,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_admin)]
 ):
-    """Inicia el proceso de envío masivo de retenciones"""
+    """Inicia el proceso de envío masivo de retenciones en segundo plano usando filtros"""
+    query = db.query(APRetencion.Id).filter(
+        or_(APRetencion.status == None, APRetencion.status == '', APRetencion.status == 'pendiente'),
+        APRetencion.necesita_aprobacion == False
+    )
+    if request.fecha_inicio:
+        query = query.filter(APRetencion.DocumentDate >= parse_date_filter(request.fecha_inicio, is_end_date=False))
+    if request.fecha_fin:
+        query = query.filter(APRetencion.DocumentDate <= parse_date_filter(request.fecha_fin, is_end_date=True))
+    if request.serie:
+        query = query.filter(APRetencion.Serie == request.serie)
+        
+    ids = [str(r[0]) for r in query.all()]
+    
+    if not ids:
+        return ResponseBase(
+            success=True,
+            message="No hay retenciones pendientes para enviar en este rango/serie",
+            data={"count": 0}
+        )
+        
     background_tasks.add_task(
         procesar_envio_masivo_retenciones,
-        request.ids,
+        ids,
         request.usuario
     )
     
     return ResponseBase(
         success=True,
-        message=f"Se ha iniciado el proceso de envío para {len(request.ids)} retenciones"
+        message=f"Se ha iniciado el proceso de envío para {len(ids)} retenciones",
+        data={"count": len(ids)}
     )
 
 
