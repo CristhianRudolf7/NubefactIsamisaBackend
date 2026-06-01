@@ -288,7 +288,7 @@ async def procesar_envio_masivo_retenciones(ids: List[str], usuario: str):
         print(f"[BULK RETENCIONES] Iniciando envío masivo de {len(ids)} retenciones")
         for idx, ret_id in enumerate(ids, 1):
             ret_check = db.query(APRetencion).filter(APRetencion.Id == int(ret_id)).first()
-            doc_info = f"{ret_check.Serie}-{ret_check.Numero}" if ret_check else ret_id
+            doc_info = f"{ret_check.Id} ({ret_check.Serie}-{ret_check.Numero})" if ret_check else ret_id
             try:
                 result = await service.enviar_retencion(int(ret_id), usuario)
                 if not result.get("success", False):

@@ -86,7 +86,7 @@ class DocumentService:
     
     # ==================== GUÍAS DE REMISIÓN ====================
     
-    async def enviar_guia(self, transaction_id: str, usuario: str) -> Dict[str, Any]:
+    async def enviar_guia(self, transaction_id: str, usuario: str, es_masivo: bool = False) -> Dict[str, Any]:
         """Envía guía de remisión a NubeFact"""
         # Obtener guía con detalles
         guia = self.db.query(WHTransaction).filter(
@@ -159,7 +159,8 @@ class DocumentService:
         
         # Si se envió correctamente, esperar 5 segundos y consultar estado
         if response.success and not response.aceptada_por_sunat:
-            print("Guía enviada a NubeFact, esperando 5 segundos para consultar estado...")
+            if not es_masivo:
+                print("Guía enviada a NubeFact, esperando 5 segundos para consultar estado...")
             import asyncio
             await asyncio.sleep(5)
             
@@ -174,12 +175,21 @@ class DocumentService:
             
             # Si la consulta fue exitosa, usar esa respuesta
             if consult_response.success:
-                print(f"Estado consultado: aceptada_por_sunat={consult_response.aceptada_por_sunat}")
+                if not es_masivo:
+                    print(f"Estado consultado: aceptada_por_sunat={consult_response.aceptada_por_sunat}")
                 response = consult_response
         
         # Actualizar estado
-        if response.success:
-            # Si NubeFact procesó con éxito, se considera aceptado
+        is_already_sent = False
+        if not response.success and response.errors:
+            for err in response.errors:
+                err_lower = err.lower()
+                if "ya fue enviado" in err_lower or "ya existe" in err_lower or "enviado anteriormente" in err_lower:
+                    is_already_sent = True
+                    break
+
+        if response.success or is_already_sent:
+            # Si NubeFact procesó con éxito (o ya fue enviado antes), se considera aceptado
             guia.envio_nube = "aceptada"
             guia.nube_status_web = "aceptado"
 
@@ -192,8 +202,8 @@ class DocumentService:
                 enlace_del_pdf=response.enlace_del_pdf,
                 enlace_del_xml=response.enlace_del_xml,
                 enlace_del_cdr=response.enlace_del_cdr,
-                aceptada_por_sunat="true" if response.aceptada_por_sunat else "false",
-                sunat_description=response.sunat_description,
+                aceptada_por_sunat="true" if (response.aceptada_por_sunat or is_already_sent) else "false",
+                sunat_description=response.sunat_description or ("La guía ya fue enviada anteriormente" if is_already_sent else None),
                 sunat_note=response.sunat_note,
                 sunat_responsecode=response.sunat_responsecode,
                 sunat_soap_error=response.sunat_soap_error,
@@ -213,37 +223,39 @@ class DocumentService:
             if response.errors:
                 guia.RejectionReason = ", ".join(response.errors)
             
-            # Notificar por WhatsApp
-            notification_service = NotificationService(self.db)
-            if response.success:
-                if response.aceptada_por_sunat:
-                    await notification_service.notificar_envio_exitoso(
-                        tipo_modulo="guias",
-                        tipo_documento="guia",
-                        serie=guia.DocumentSerie,
-                        numero=guia.DocumentNo,
-                        mensaje_sunat=response.sunat_description
-                    )
-            else:
-                error_msg = ", ".join(response.errors) if response.errors else response.message
-                await notification_service.notificar_error_documento(
+        # Notificar por WhatsApp
+        notification_service = NotificationService(self.db)
+        if response.success or is_already_sent:
+            if response.aceptada_por_sunat or is_already_sent:
+                await notification_service.notificar_envio_exitoso(
                     tipo_modulo="guias",
                     tipo_documento="guia",
                     serie=guia.DocumentSerie,
                     numero=guia.DocumentNo,
-                    error=error_msg,
-                    documento_id=guia.Transaction
+                    mensaje_sunat=response.sunat_description or "La guía ya fue enviada anteriormente"
                 )
+        else:
+            error_msg = ", ".join(response.errors) if response.errors else response.message
+            await notification_service.notificar_error_documento(
+                tipo_modulo="guias",
+                tipo_documento="guia",
+                serie=guia.DocumentSerie,
+                numero=guia.DocumentNo,
+                error=error_msg,
+                documento_id=guia.Transaction
+            )
 
         self.db.commit()
 
         # Construir mensaje con errores si existen
         mensaje = response.message
-        if response.errors:
+        if response.errors and not is_already_sent:
             mensaje = response.message + ": " + ", ".join(response.errors)
+        elif is_already_sent:
+            mensaje = "La guía ya fue enviada anteriormente y se marcó como aceptada"
 
         return {
-            "success": response.success,
+            "success": response.success or is_already_sent,
             "message": mensaje,
             "data": response.model_dump(exclude_none=True)
         }
@@ -364,8 +376,16 @@ class DocumentService:
         response = await nubefact_client.generar_retencion(request)
         
         # Actualizar estado
-        if response.success:
-            # Si NubeFact procesó con éxito, se considera aceptado
+        is_already_sent = False
+        if not response.success and response.errors:
+            for err in response.errors:
+                err_lower = err.lower()
+                if "ya fue enviado" in err_lower or "ya existe" in err_lower or "enviado anteriormente" in err_lower:
+                    is_already_sent = True
+                    break
+
+        if response.success or is_already_sent:
+            # Si NubeFact procesó con éxito (o ya fue enviado antes), se considera aceptado
             retencion.status = "aceptada"
             retencion.nube_status_web = "aceptado"
         else:
@@ -373,15 +393,15 @@ class DocumentService:
             retencion.nube_status_web = "error"
         
         # Guardar respuesta (tanto exitosa como con errores)
-        error_str = ", ".join(response.errors) if response.errors else None
+        error_str = ", ".join(response.errors) if (response.errors and not is_already_sent) else None
         status_record = APRetencionStatus(
             Retencion=retencion.Id,
-            Status="aceptada" if response.aceptada_por_sunat else "rechazada" if response.success else "error",
+            Status="aceptada" if (response.aceptada_por_sunat or is_already_sent) else "rechazada" if response.success else "error",
             Pdf=response.enlace_del_pdf,
             Xml=response.enlace_del_xml,
             Cdr=response.enlace_del_cdr,
             Aceptacion=response.enlace,
-            Descripcion=response.sunat_description,
+            Descripcion=response.sunat_description or ("La retención ya fue enviada anteriormente" if is_already_sent else None),
             Nota=response.sunat_note,
             ResponseCode=response.sunat_responsecode,
             Soap=response.sunat_soap_error,
@@ -395,14 +415,14 @@ class DocumentService:
         
         # Notificar por WhatsApp
         notification_service = NotificationService(self.db)
-        if response.success:
-            if response.aceptada_por_sunat:
+        if response.success or is_already_sent:
+            if response.aceptada_por_sunat or is_already_sent:
                 await notification_service.notificar_envio_exitoso(
                     tipo_modulo="retenciones",
                     tipo_documento="retencion",
                     serie=retencion.Serie,
                     numero=retencion.Numero,
-                    mensaje_sunat=response.sunat_description
+                    mensaje_sunat=response.sunat_description or "La retención ya fue enviada anteriormente"
                 )
         else:
             error_msg = ", ".join(response.errors) if response.errors else response.message
@@ -428,13 +448,14 @@ class DocumentService:
     
     # ==================== DOCUMENTOS DE VENTA ====================
     
-    async def enviar_documento_venta(self, document_id: str, usuario: str) -> Dict[str, Any]:
+    async def enviar_documento_venta(self, document_id: str, usuario: str, es_masivo: bool = False) -> Dict[str, Any]:
         """Envía documento de venta a NubeFact"""
         peru_now = now_peru()
-        print(f"\n{'='*60}")
-        print(f"ENVIO A NUBEFACT - Documento: {document_id}")
-        print(f"Fecha Perú: {peru_now.strftime('%d-%m-%Y %H:%M:%S')}")
-        print(f"{'='*60}")
+        if not es_masivo:
+            print(f"\n{'='*60}")
+            print(f"ENVIO A NUBEFACT - Documento: {document_id}")
+            print(f"Fecha Perú: {peru_now.strftime('%d-%m-%Y %H:%M:%S')}")
+            print(f"{'='*60}")
         
         documento = self.db.query(ARDocument).filter(
             ARDocument.Document == document_id,
@@ -442,24 +463,29 @@ class DocumentService:
         ).first()
         
         if not documento:
-            print(f"ERROR: Documento no encontrado o es un ticket")
+            if not es_masivo:
+                print(f"ERROR: Documento no encontrado o es un ticket")
             return {"success": False, "message": "Documento no encontrado o es un ticket (su serie inicia con T)"}
             
         if documento.Status == 'N':
-            print(f"ERROR: Documento {document_id} está anulado en el sistema (Status = N)")
+            if not es_masivo:
+                print(f"ERROR: Documento {document_id} está anulado en el sistema (Status = N)")
             return {"success": False, "message": "El documento está anulado en el sistema y no puede ser enviado"}
         
-        print(f"Documento encontrado:")
-        print(f"  - Serie: {documento.DocumentSerie}")
-        print(f"  - Numero: {documento.DocumentNo}")
-        print(f"  - Tipo: {documento.DocumentType}")
-        print(f"  - Cliente: {documento.VendorName}")
-        print(f"  - RUC: {documento.VendorRUC}")
-        print(f"  - Total: {documento.AmountTotalLo}")
-        print(f"  - Estado fe: {documento.fe}")
+        if not es_masivo:
+            print(f"Documento encontrado:")
+            print(f"  - Serie: {documento.DocumentSerie}")
+            print(f"  - Numero: {documento.DocumentNo}")
+            print(f"  - Tipo: {documento.DocumentType}")
+            print(f"  - Cliente: {documento.VendorName}")
+            print(f"  - RUC: {documento.VendorRUC}")
+            print(f"  - Total: {documento.AmountTotalLo}")
+            print(f"  - Estado fe: {documento.fe}")
         
-        if documento.fe == "enviado":
-            print(f"ERROR: Documento ya fue enviado")
+        # Validar si ya fue aceptado en el dashboard web
+        if documento.nube_status_web == "aceptado":
+            if not es_masivo:
+                print(f"ERROR: Documento ya fue enviado")
             return {"success": False, "message": "El documento ya fue enviado"}
         
         if documento.necesita_aprobacion:
@@ -470,10 +496,12 @@ class DocumentService:
         
         # Construir items
         items = []
-        print(f"\nDetalles del documento:")
+        if not es_masivo:
+            print(f"\nDetalles del documento:")
         for det in documento.detalles:
-            print(f"  Linea {det.Line}: {det.ItemCode} - {det.Description}")
-            print(f"    Cantidad: {det.Quantity}, Precio: {det.Price}, Total: {det.Total}")
+            if not es_masivo:
+                print(f"  Linea {det.Line}: {det.ItemCode} - {det.Description}")
+                print(f"    Cantidad: {det.Quantity}, Precio: {det.Price}, Total: {det.Total}")
             
             # En la BD: 
             # - det.Total es el subtotal (neto sin IGV) y ya tiene el descuento aplicado
@@ -517,19 +545,22 @@ class DocumentService:
             "LIMADSASDEBITO": 4,   # Nota de débito
         }
         tipo_comprobante = tipo_doc_map.get(doc_type_clean, 1)
-        print(f"\nTipo comprobante original: {documento.DocumentType} -> Limpio: {doc_type_clean} -> Mapeado: {tipo_comprobante}")
-        print(f"\nTipo comprobante mapeado: {tipo_comprobante}")
+        if not es_masivo:
+            print(f"\nTipo comprobante original: {documento.DocumentType} -> Limpio: {doc_type_clean} -> Mapeado: {tipo_comprobante}")
+            print(f"\nTipo comprobante mapeado: {tipo_comprobante}")
         
         # Mapear tipo de cliente
         ruc_limpio = (documento.VendorRUC or "").strip()
         tipo_cliente = "6" if len(ruc_limpio) == 11 else "1"
-        print(f"Tipo cliente: {tipo_cliente} (RUC: '{ruc_limpio}', len: {len(ruc_limpio)})")
+        if not es_masivo:
+            print(f"Tipo cliente: {tipo_cliente} (RUC: '{ruc_limpio}', len: {len(ruc_limpio)})")
         
         # Usar fecha de HOY (Perú) para NubeFact - requiere fecha actual
         fecha_emision_peru = peru_now.strftime("%d-%m-%Y")
         fecha_doc = self._fecha_excel_to_date(documento.DocumentDate)
-        print(f"Fecha documento DB: {fecha_doc}")
-        print(f"Fecha a enviar (HOY Perú): {fecha_emision_peru}")
+        if not es_masivo:
+            print(f"Fecha documento DB: {fecha_doc}")
+            print(f"Fecha a enviar (HOY Perú): {fecha_emision_peru}")
         
         # Totales de cabecera según la moneda
         header_total = documento.AmountTotalLo if is_soles else (documento.AmountTotalEx or 0)
@@ -556,36 +587,48 @@ class DocumentService:
             items=items,
         )
         
-        print(f"\nRequest a NubeFact:")
-        print(f"  - serie: {request.serie}")
-        print(f"  - numero: {request.numero}")
-        print(f"  - fecha_emision: {request.fecha_de_emision}")
-        print(f"  - cliente: {request.cliente_denominacion}")
-        print(f"  - total_gravada: {request.total_gravada}")
-        print(f"  - total_igv: {request.total_igv}")
-        print(f"  - total: {request.total}")
-        print(f"  - items: {len(request.items)}")
+        if not es_masivo:
+            print(f"\nRequest a NubeFact:")
+            print(f"  - serie: {request.serie}")
+            print(f"  - numero: {request.numero}")
+            print(f"  - fecha_emision: {request.fecha_de_emision}")
+            print(f"  - cliente: {request.cliente_denominacion}")
+            print(f"  - total_gravada: {request.total_gravada}")
+            print(f"  - total_igv: {request.total_igv}")
+            print(f"  - total: {request.total}")
+            print(f"  - items: {len(request.items)}")
         
         # Enviar a NubeFact
-        print(f"\nEnviando a NubeFact...")
+        if not es_masivo:
+            print(f"\nEnviando a NubeFact...")
         try:
             response = await nubefact_client.generar_comprobante(request)
-            print(f"Respuesta recibida:")
-            print(f"  - success: {response.success}")
-            print(f"  - message: {response.message}")
-            if response.errors:
-                print(f"  - errors: {response.errors}")
-            if response.aceptada_por_sunat:
-                print(f"  - aceptada_por_sunat: {response.aceptada_por_sunat}")
-            if response.sunat_description:
-                print(f"  - sunat_description: {response.sunat_description}")
+            if not es_masivo:
+                print(f"Respuesta recibida:")
+                print(f"  - success: {response.success}")
+                print(f"  - message: {response.message}")
+                if response.errors:
+                    print(f"  - errors: {response.errors}")
+                if response.aceptada_por_sunat:
+                    print(f"  - aceptada_por_sunat: {response.aceptada_por_sunat}")
+                if response.sunat_description:
+                    print(f"  - sunat_description: {response.sunat_description}")
         except Exception as e:
-            print(f"EXCEPCION al enviar: {type(e).__name__}: {e}")
+            if not es_masivo:
+                print(f"EXCEPCION al enviar: {type(e).__name__}: {e}")
             return {"success": False, "message": f"Error al enviar: {str(e)}"}
         
         # Actualizar estado
-        if response.success:
-            # Si NubeFact procesó con éxito, se considera aceptado
+        is_already_sent = False
+        if not response.success and response.errors:
+            for err in response.errors:
+                err_lower = err.lower()
+                if "ya fue enviado" in err_lower or "ya existe" in err_lower or "enviado anteriormente" in err_lower:
+                    is_already_sent = True
+                    break
+        
+        if response.success or is_already_sent:
+            # Si NubeFact procesó con éxito (o ya fue enviado antes), se considera aceptado
             documento.fe = "aceptada"
             documento.nube_status_web = "aceptado"
         else:
@@ -593,7 +636,7 @@ class DocumentService:
             documento.nube_status_web = "error"
         
         # Guardar respuesta (tanto exitosa como con errores)
-        error_str = ", ".join(response.errors) if response.errors else None
+        error_str = ", ".join(response.errors) if (response.errors and not is_already_sent) else None
         nube_record = ARFENube(
             serie=documento.DocumentSerie,
             numero=documento.DocumentNo,
@@ -601,8 +644,8 @@ class DocumentService:
             enlace_del_pdf=response.enlace_del_pdf,
             enlace_del_xml=response.enlace_del_xml,
             enlace_del_cdr=response.enlace_del_cdr,
-            aceptada_por_sunat="true" if response.aceptada_por_sunat else "false",
-            sunat_description=response.sunat_description,
+            aceptada_por_sunat="true" if (response.aceptada_por_sunat or is_already_sent) else "false",
+            sunat_description=response.sunat_description or ("El documento ya fue enviado anteriormente" if is_already_sent else None),
             sunat_note=response.sunat_note,
             sunat_responsecode=response.sunat_responsecode,
             sunat_soap_error=response.sunat_soap_error,
@@ -618,18 +661,19 @@ class DocumentService:
         self.db.add(nube_record)
         
         self.db.commit()
-        print(f"{'='*60}\n")
+        if not es_masivo:
+            print(f"{'='*60}\n")
         
         # Notificar por WhatsApp
         notification_service = NotificationService(self.db)
-        if response.success:
-            if response.aceptada_por_sunat:
+        if response.success or is_already_sent:
+            if response.aceptada_por_sunat or is_already_sent:
                 await notification_service.notificar_envio_exitoso(
                     tipo_modulo="ventas",
                     tipo_documento=documento.DocumentType,
                     serie=documento.DocumentSerie,
                     numero=documento.DocumentNo,
-                    mensaje_sunat=response.sunat_description
+                    mensaje_sunat=response.sunat_description or "El documento ya fue enviado anteriormente"
                 )
         else:
             error_msg = ", ".join(response.errors) if response.errors else response.message
@@ -644,11 +688,13 @@ class DocumentService:
         
         # Construir mensaje con errores si existen
         mensaje = response.message
-        if response.errors:
+        if response.errors and not is_already_sent:
             mensaje = response.message + ": " + ", ".join(response.errors)
+        elif is_already_sent:
+            mensaje = "El documento ya fue enviado anteriormente y se marcó como aceptado"
             
         return {
-            "success": response.success,
+            "success": response.success or is_already_sent,
             "message": mensaje,
             "data": response.model_dump(exclude_none=True)
         }

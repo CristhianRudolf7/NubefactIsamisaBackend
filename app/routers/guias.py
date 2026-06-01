@@ -244,9 +244,9 @@ async def procesar_envio_masivo_guias(ids: List[str], usuario: str):
         print(f"[BULK GUIAS] Iniciando envío masivo de {len(ids)} guías")
         for idx, trans_id in enumerate(ids, 1):
             guia = db.query(WHTransaction).filter(WHTransaction.Transaction == trans_id).first()
-            doc_info = f"{guia.DocumentSerie}-{guia.DocumentNo}" if guia else trans_id
+            doc_info = f"{guia.Transaction} ({guia.DocumentSerie}-{guia.DocumentNo})" if guia else trans_id
             try:
-                result = await service.enviar_guia(trans_id, usuario)
+                result = await service.enviar_guia(trans_id, usuario, es_masivo=True)
                 if not result.get("success", False):
                     print(f"envio {idx}/{len(ids)} {doc_info}: ERROR - {result.get('message')}")
                     if guia and (guia.envio_nube in ["pendiente", "error", "", None] or guia.nube_status_web in ["pendiente", "error", "", None]) and not guia.necesita_aprobacion:

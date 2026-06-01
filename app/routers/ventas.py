@@ -380,13 +380,13 @@ async def procesar_envio_masivo_ventas(ids: List[str], usuario: str):
         print(f"[BULK VENTAS] Iniciando envío masivo de {len(ids)} documentos")
         for idx, doc_id in enumerate(ids, 1):
             doc = db.query(ARDocument).filter(ARDocument.Document == doc_id).first()
-            doc_info = f"{doc.DocumentSerie}-{doc.DocumentNo}" if doc else doc_id
+            doc_info = f"{doc.Document} ({doc.DocumentSerie}-{doc.DocumentNo})" if doc else doc_id
             try:
                 if doc and doc.Status == 'N':
                     print(f"envio {idx}/{len(ids)} {doc_info}: Omitido (Anulado en ERP)")
                     continue
 
-                result = await service.enviar_documento_venta(doc_id, usuario)
+                result = await service.enviar_documento_venta(doc_id, usuario, es_masivo=True)
                 if not result.get("success", False):
                     print(f"envio {idx}/{len(ids)} {doc_info}: ERROR - {result.get('message')}")
                     doc = db.query(ARDocument).filter(ARDocument.Document == doc_id).first()
