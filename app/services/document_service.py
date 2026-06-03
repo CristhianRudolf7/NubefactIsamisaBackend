@@ -475,8 +475,11 @@ class DocumentService:
         if not es_masivo:
             print(f"Llamando a API local: {url}")
             
-        # Liberar bloqueos de SQL Server antes de invocar la API externa para evitar interbloqueos (deadlocks)
-        self.db.commit()
+        # Resetear el estado a 'pendiente' en la base de datos antes de llamar al PHP
+        # Esto asegura que limpiemos estados anteriores ('error') y podamos leer el nuevo resultado correctamente
+        documento.fe = "pendiente"
+        documento.nube_status_web = "pendiente"
+        self.db.commit() # Esto guarda el cambio de reset y además libera los bloqueos en SQL Server
             
         # Llamar a la API PHP local
         try:
@@ -488,27 +491,17 @@ class DocumentService:
             if not es_masivo:
                 print(f"Error o Timeout llamando a la API local (se procederá a verificar la BD): {e}")
 
-        # Esperar y verificar en la base de datos
-        fe_status = "pendiente"
-        # Haremos hasta 4 intentos de verificación (cada 1 segundo)
-        for attempt in range(4):
-            if attempt > 0:
-                await asyncio.sleep(1.0)
-            
-            # Cerrar la transacción de lectura actual para iniciar una nueva limpia y poder ver los cambios del PHP
-            self.db.rollback()
-            
-            # Volver a obtener el documento
-            documento = self.db.query(ARDocument).filter(ARDocument.Document == document_id).first()
-            if not documento:
-                break
-            
-            fe_status = (documento.fe or "").strip().lower()
-            if not es_masivo:
-                print(f"Intento {attempt + 1}: Estado fe en BD = {documento.fe}")
-                
-            if fe_status in ('enviado', 'aceptada', 'error'):
-                break
+        # Esperar 1.5 segundos para dar tiempo al script PHP de terminar su ejecución
+        await asyncio.sleep(1.5)
+        
+        # Cerrar la transacción de lectura actual para iniciar una nueva limpia y poder ver los cambios del PHP
+        self.db.rollback()
+        
+        # Volver a obtener el documento
+        documento = self.db.query(ARDocument).filter(ARDocument.Document == document_id).first()
+        fe_status = (documento.fe or "").strip().lower() if documento else "pendiente"
+        if not es_masivo:
+            print(f"Estado fe en BD después del envío: {fe_status}")
 
         success = False
         mensaje = ""
