@@ -51,22 +51,43 @@ app = FastAPI(
 )
 
 # Configurar CORS
+import socket
+
+allowed_origins = settings.allowed_origins.split(",")
+
+# Auto-detectar la IP local del servidor para permitir conexiones desde la misma red local
+try:
+    # Método 1: Socket UDP (muy confiable)
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    s.connect(("8.8.8.8", 80))
+    local_ip = s.getsockname()[0]
+    s.close()
+except Exception:
+    try:
+        # Método 2: Hostname
+        local_ip = socket.gethostbyname(socket.gethostname())
+    except Exception:
+        local_ip = None
+
+if local_ip:
+    local_origins = [
+        f"http://{local_ip}",
+        f"http://{local_ip}:80",
+        f"http://{local_ip}:5173",
+        f"http://{local_ip}:3000",
+    ]
+    for origin in local_origins:
+        if origin not in allowed_origins:
+            allowed_origins.append(origin)
+
 # IMPORTANTE: Cuando allow_credentials=True, NO se puede usar allow_origins=["*"]
 # El navegador rechaza enviar cookies con orígenes wildcard
-cors_params = {
-    "allow_credentials": True,
-    "allow_methods": ["*"],
-    "allow_headers": ["*"],
-}
-
-if settings.debug:
-    cors_params["allow_origin_regex"] = r"https?://(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[0-1])\.\d+\.\d+)(:\d+)?"
-else:
-    cors_params["allow_origins"] = settings.allowed_origins.split(",")
-
 app.add_middleware(
     CORSMiddleware,
-    **cors_params
+    allow_origins=allowed_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # Incluir routers
