@@ -484,14 +484,17 @@ class DocumentService:
             
         # Llamar a la API PHP local
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
+            # Aumentamos el timeout a 60.0 segundos ya que el script de PHP puede tardar en responder al comunicarse con NubeFact/SUNAT
+            async with httpx.AsyncClient(timeout=60.0) as client:
                 response = await client.get(url)
                 if not es_masivo:
                     print(f"Respuesta de la API local - Status: {response.status_code}")
                     print(f"Cuerpo de respuesta de la API local (primeros 500 caracteres): {response.text[:500]}")
         except Exception as e:
             if not es_masivo:
-                print(f"Error o Timeout llamando a la API local (se procederá a verificar la BD): {e}")
+                import traceback
+                print(f"Error o Timeout llamando a la API local: {type(e).__name__} - {e}")
+                traceback.print_exc()
 
         # Esperar 1.5 segundos para dar tiempo al script PHP de terminar su ejecución
         await asyncio.sleep(1.5)
