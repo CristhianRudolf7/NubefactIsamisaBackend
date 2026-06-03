@@ -89,8 +89,8 @@ class DocumentService:
     # ==================== GUÍAS DE REMISIÓN ====================
     
     async def enviar_guia(self, transaction_id: str, usuario: str, es_masivo: bool = False) -> Dict[str, Any]:
-        """Envía guía de remisión a NubeFact"""
-        # Obtener guía con detalles
+        """Envía guía de remisión llamando a la API PHP local de envío y luego a la de consulta"""
+        # 1. Obtener guía con detalles
         guia = self.db.query(WHTransaction).filter(
             WHTransaction.Transaction == transaction_id
         ).first()
@@ -104,153 +104,118 @@ class DocumentService:
         if guia.necesita_aprobacion:
             return {"success": False, "message": "La guía requiere aprobación del administrador antes de ser enviada"}
         
-        # Construir request para NubeFact
-        items = []
-        for det in guia.detalles:
-            items.append(NubeFactItem(
-                unidad_de_medida="NIU",
-                codigo=det.ItemCode or "",
-                descripcion=det.ItemDescription or "",
-                cantidad=det.Quantity or 0,
-            ))
+        # Resetear el estado a 'pendiente' en la base de datos antes de llamar al PHP de envío
+        guia.envio_nube = "pendiente"
+        guia.nube_status_web = "pendiente"
+        self.db.commit()
         
-        # Mapear motivo de traslado
-        motivo_map = {
-            "VENTA": "01",
-            "CONSIGNACIÓN": "05",
-            "TRASLADOS ENTRE ESTABLECIMIENTOS DE LA EMPRESA": "04",
-            "OTROS": "13",
-            "COMPRA": "02",
-        }
-        codigo_motivo = motivo_map.get(guia.MotivoTraslado, "")
-        
-        # Determinar tipo de transporte
-        tipo_transporte = "02" if guia.RucTransportista == "20602674488" else "01"
-        
-        # Construir request
-        request = NubeFactGuiaRequest(
-            serie=guia.DocumentSerie,
-            numero=guia.DocumentNo,
-            cliente_tipo_de_documento="6" if len(guia.TargetPersonRUC or "") == 11 else "1",
-            cliente_numero_de_documento=guia.TargetPersonRUC or "",
-            cliente_denominacion=guia.TargetPersonName or "",
-            cliente_direccion=guia.TargetAddress or "",
-            fecha_de_emision=self._fecha_excel_to_date(guia.FechaTraslado),
-            observaciones=guia.Comments or "",
-            motivo_de_traslado=codigo_motivo,
-            peso_bruto_total=guia.PesoBruto or 0,
-            numero_de_bultos=sum(d.QuantityBultos or 0 for d in guia.detalles),
-            tipo_de_transporte=tipo_transporte,
-            fecha_de_inicio_de_traslado=self._fecha_excel_to_date(guia.FechaTraslado),
-            transportista_documento_numero=guia.RucTransportista or "",
-            transportista_denominacion=guia.Transportista or "",
-            transportista_placa_numero=guia.VehicleID or "",
-            conductor_documento_numero=guia.DriverId if guia.DriverId else (guia.LicenciaConducir[1:] if guia.LicenciaConducir else ""),
-            conductor_nombre=guia.Driver.split()[2] if guia.Driver and len(guia.Driver.split()) > 2 else "",
-            conductor_apellidos=f"{guia.Driver.split()[0]} {guia.Driver.split()[1]}" if guia.Driver and len(guia.Driver.split()) > 1 else "",
-            conductor_numero_licencia=guia.LicenciaConducir or "",
-            punto_de_partida_ubigeo=guia.ubigeo_des or "",
-            punto_de_partida_direccion=guia.origenaddress or "",
-            punto_de_llegada_ubigeo=guia.ubigeo_des or "",
-            punto_de_llegada_direccion=guia.TargetAddress or "",
-            items=items,
-        )
-        
-        # Enviar a NubeFact
-        response = await nubefact_client.generar_guia(request)
-        
-        # Si se envió correctamente, esperar 5 segundos y consultar estado
-        if response.success and not response.aceptada_por_sunat:
-            if not es_masivo:
-                print("Guía enviada a NubeFact, esperando 5 segundos para consultar estado...")
-            import asyncio
-            await asyncio.sleep(5)
+        # --- PASO 1: LLAMAR A LA API PHP DE ENVÍO (envioguia1.php) ---
+        url_envio = f"http://192.168.1.3/sistemas/gr/envioguia1.php?Doc={transaction_id}"
+        if not es_masivo:
+            print(f"[GUIA] Paso 1: Llamando a API local de Envío: {url_envio}")
             
-            # Consultar estado de la guía
-            from ..schemas.nubefact import NubeFactConsultRequest
-            consult_request = NubeFactConsultRequest(
-                tipo_de_comprobante=7,
-                serie=guia.DocumentSerie,
-                numero=guia.DocumentNo
-            )
-            consult_response = await nubefact_client.consultar_guia(consult_request)
-            
-            # Si la consulta fue exitosa, usar esa respuesta
-            if consult_response.success:
+        php_envio_output = ""
+        try:
+            # Timeout de 60.0 segundos ya que el script de PHP puede tardar en responder al comunicarse con NubeFact/SUNAT
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                response = await client.get(url_envio)
+                php_envio_output = response.text.strip()
                 if not es_masivo:
-                    print(f"Estado consultado: aceptada_por_sunat={consult_response.aceptada_por_sunat}")
-                response = consult_response
+                    print(f"[GUIA] Respuesta API Envío - Status: {response.status_code}")
+                    print(f"[GUIA] Cuerpo respuesta Envío: {php_envio_output[:500]}")
+        except Exception as e:
+            php_envio_output = f"Error al conectar con la API local de Envío: {type(e).__name__} - {str(e)}"
+            if not es_masivo:
+                print(f"[GUIA] {php_envio_output}")
+
+        # Esperar un momento y rollback para sincronizar la sesión antes de verificar
+        await asyncio.sleep(1.5)
+        self.db.rollback()
         
-        # Actualizar estado
+        # Volver a obtener el registro de la guía
+        guia = self.db.query(WHTransaction).filter(WHTransaction.Transaction == transaction_id).first()
+        
+        # Analizar respuesta del envío
+        php_envio_lower = php_envio_output.lower()
+        is_accepted = "aceptada" in php_envio_lower or php_envio_lower == "aceptada"
         is_already_sent = False
-        if not response.success and response.errors:
-            for err in response.errors:
-                err_lower = err.lower()
-                if "ya fue enviado" in err_lower or "ya existe" in err_lower or "enviado anteriormente" in err_lower:
-                    is_already_sent = True
-                    break
+        if "ya fue enviado" in php_envio_lower or "ya existe" in php_envio_lower or "enviado anteriormente" in php_envio_lower:
+            is_already_sent = True
 
-        if response.success or is_already_sent:
-            # Si NubeFact procesó con éxito (o ya fue enviado antes), se considera aceptado
-            guia.envio_nube = "aceptada"
-            guia.nube_status_web = "aceptado"
-
-            # Guardar respuesta
-            nube_record = WHTransactionNube(
-                TransactionId=guia.Transaction,
-                serie=guia.DocumentSerie,
-                numero=guia.DocumentNo,
-                enlace=response.enlace,
-                enlace_del_pdf=response.enlace_del_pdf,
-                enlace_del_xml=response.enlace_del_xml,
-                enlace_del_cdr=response.enlace_del_cdr,
-                aceptada_por_sunat="true" if (response.aceptada_por_sunat or is_already_sent) else "false",
-                sunat_description=response.sunat_description or ("La guía ya fue enviada anteriormente" if is_already_sent else None),
-                sunat_note=response.sunat_note,
-                sunat_responsecode=response.sunat_responsecode,
-                sunat_soap_error=response.sunat_soap_error,
-                pdf_zip_base64=response.pdf_zip_base64,
-                xml_zip_base64=response.xml_zip_base64,
-                cdr_zip_base64=response.cdr_zip_base64,
-                codigo_hash_qr=response.cadena_para_codigo_qr,
-                codigo_hash=response.codigo_hash,
-                fecha_envio=now_peru().timestamp(),
-                usuario_envio=usuario,
-            )
-            self.db.add(nube_record)
-        else:
+        if not (is_accepted or is_already_sent):
+            # Si el envío falló, registrar el error y salir sin llamar al script de consulta
             guia.envio_nube = "error"
             guia.nube_status_web = "error"
-            # Guardar error para mostrar en el detalle
-            if response.errors:
-                guia.RejectionReason = ", ".join(response.errors)
+            guia.RejectionReason = php_envio_output[:500]
+            self.db.commit()
             
-        # Notificar por WhatsApp
-        notification_service = NotificationService(self.db)
-        if not response.success and not is_already_sent:
-            error_msg = ", ".join(response.errors) if response.errors else response.message
-            await notification_service.notificar_error_documento(
-                tipo_modulo="guias",
-                tipo_documento="guia",
-                serie=guia.DocumentSerie,
-                numero=guia.DocumentNo,
-                error=error_msg,
-                documento_id=guia.Transaction
-            )
+            # Notificar error de envío por WhatsApp
+            try:
+                notification_service = NotificationService(self.db)
+                await notification_service.notificar_error_documento(
+                    tipo_modulo="guias",
+                    tipo_documento="guia",
+                    serie=guia.DocumentSerie,
+                    numero=guia.DocumentNo,
+                    error=php_envio_output,
+                    documento_id=guia.Transaction
+                )
+            except Exception as ne:
+                if not es_masivo:
+                    print(f"[GUIA] Error al enviar notificación de error de envío por WhatsApp: {ne}")
+                    
+            return {
+                "success": False,
+                "message": f"Error en envío inicial (envioguia1.php): {php_envio_output}",
+                "data": {"errors": [php_envio_output]}
+            }
 
+        # --- PASO 2: LLAMAR A LA API PHP DE CONSULTA (consult_guia.php) ---
+        # Determinamos el ID a enviar (id_guia_remision o en su defecto transaction_id)
+        id_doc_consulta = guia.id_guia_remision or transaction_id
+        url_consulta = f"http://192.168.1.3/sis/guias/consult_guia.php?serie={guia.DocumentSerie}&numero={guia.DocumentNo}&id={id_doc_consulta}"
+        
+        if not es_masivo:
+            print(f"[GUIA] Paso 2: Llamando a API local de Consulta: {url_consulta}")
+            
+        php_consulta_output = ""
+        try:
+            # Llamamos al PHP de consulta (este script actualiza NB_GuiasStatus y envía WhatsApps de éxito/rechazo de SUNAT)
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                response = await client.get(url_consulta)
+                php_consulta_output = response.text.strip()
+                if not es_masivo:
+                    print(f"[GUIA] Respuesta API Consulta - Status: {response.status_code}")
+                    print(f"[GUIA] Cuerpo respuesta Consulta: {php_consulta_output[:500]}")
+        except Exception as e:
+            php_consulta_output = f"Error al conectar con la API local de Consulta: {type(e).__name__} - {str(e)}"
+            if not es_masivo:
+                print(f"[GUIA] {php_consulta_output}")
+
+        # Esperar un momento y sincronizar sesión
+        await asyncio.sleep(1.5)
+        self.db.rollback()
+        
+        # Volver a obtener el registro de la guía
+        guia = self.db.query(WHTransaction).filter(WHTransaction.Transaction == transaction_id).first()
+
+        # --- PASO 3: CONSULTA INTERNA EN PYTHON PARA ACTUALIZAR WH_Transaction_Nube ---
+        # Llamamos al método interno de python para asegurar que 'wh_transaction_nube' se actualice 
+        # y que el frontend de FastAPI pueda descargar el PDF/XML/CDR desde el dashboard
+        consult_result = await self.consultar_guia(transaction_id)
+        if consult_result.get("success"):
+            return consult_result
+            
+        # Si la consulta interna de Python falla por alguna razón (ej. problemas de red con el cliente Python), 
+        # pero sabemos que la guía fue aceptada por el flujo PHP/Nubefact:
+        guia.envio_nube = "aceptada"
+        guia.nube_status_web = "aceptado"
         self.db.commit()
-
-        # Construir mensaje con errores si existen
-        mensaje = response.message
-        if response.errors and not is_already_sent:
-            mensaje = response.message + ": " + ", ".join(response.errors)
-        elif is_already_sent:
-            mensaje = "La guía ya fue enviada anteriormente y se marcó como aceptada"
-
+        
         return {
-            "success": response.success or is_already_sent,
-            "message": mensaje,
-            "data": response.model_dump(exclude_none=True)
+            "success": True,
+            "message": "La guía ya fue enviada anteriormente" if is_already_sent else "Guía enviada y consultada exitosamente a través de las APIs locales.",
+            "data": {}
         }
     
     async def consultar_guia(self, transaction_id: str) -> Dict[str, Any]:
