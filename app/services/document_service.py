@@ -555,18 +555,73 @@ class DocumentService:
         if not es_masivo:
             print(f"Tipo cliente: {tipo_cliente} (RUC: '{ruc_limpio}', len: {len(ruc_limpio)})")
         
-        # Usar fecha de HOY (Perú) para NubeFact - requiere fecha actual
-        fecha_emision_peru = peru_now.strftime("%d-%m-%Y")
+        # Usar la fecha del documento (DocumentDate) para NubeFact
         fecha_doc = self._fecha_excel_to_date(documento.DocumentDate)
+        fecha_emision_peru = peru_now.strftime("%d-%m-%Y")
+        fecha_envio_nube = fecha_doc if fecha_doc else fecha_emision_peru
         if not es_masivo:
             print(f"Fecha documento DB: {fecha_doc}")
-            print(f"Fecha a enviar (HOY Perú): {fecha_emision_peru}")
+            print(f"Fecha a enviar (usando DocumentDate): {fecha_envio_nube}")
         
         # Totales de cabecera según la moneda
         header_total = documento.AmountTotalLo if is_soles else (documento.AmountTotalEx or 0)
         header_gravada = documento.AmountNetLo if is_soles else (documento.AmountNetEx or 0)
         header_igv = round(max(0.0, header_total - header_gravada), 2)
-        
+
+        # ---- Campos para Nota de Crédito (3) o Nota de Débito (4) ----
+        tipo_de_nota_de_credito = None
+        tipo_de_nota_de_debito = None
+        doc_modifica_tipo = None
+        doc_modifica_serie = None
+        doc_modifica_numero = None
+
+        if tipo_comprobante in (3, 4):
+            # Mapear tipo del documento que se modifica (factura=1, boleta=2)
+            ref_type_clean = (documento.RefDocType or "").replace(" ", "").upper()
+            ref_tipo_map = {
+                "LIMADSASFACTURA": "1",
+                "LIMADSASBOLETA": "2",
+            }
+            doc_modifica_tipo = ref_tipo_map.get(ref_type_clean)
+            doc_modifica_serie = documento.RefDocSerie or None
+            doc_modifica_numero = documento.RefDocNo or None
+
+            if not es_masivo:
+                print(f"  - RefDocType: {documento.RefDocType} -> Mapeado: {doc_modifica_tipo}")
+                print(f"  - RefDocSerie: {doc_modifica_serie}")
+                print(f"  - RefDocNo: {doc_modifica_numero}")
+                print(f"  - MotivoNC: {documento.MotivoNC}")
+
+            if tipo_comprobante == 3:
+                # Mapear MotivoNC al código de tipo de nota de crédito de NubeFact
+                motivo_nc_map = {
+                    "01": "01",  # Anulación de la operación
+                    "02": "02",  # Anulación por error en el RUC
+                    "03": "03",  # Corrección por error en la descripción
+                    "04": "04",  # Descuento global
+                    "05": "05",  # Descuento por ítem
+                    "06": "06",  # Devolución parcial de bienes o servicios
+                    "07": "07",  # Bonificación
+                    "08": "08",  # Valor de venta del ítem (devolución total)
+                    "13": "13",  # Ajustes - montos y/o fechas de pago
+                }
+                motivo_raw = str(documento.MotivoNC or "").strip()
+                tipo_de_nota_de_credito = motivo_nc_map.get(motivo_raw, motivo_raw) if motivo_raw else "01"
+                if not es_masivo:
+                    print(f"  - tipo_de_nota_de_credito: {tipo_de_nota_de_credito}")
+            else:
+                # Nota de Débito
+                motivo_nd_map = {
+                    "01": "01",  # Intereses por mora
+                    "02": "02",  # Aumento en el valor
+                    "03": "03",  # Penalidades/otros conceptos
+                }
+                motivo_raw = str(documento.MotivoNC or "").strip()
+                tipo_de_nota_de_debito = motivo_nd_map.get(motivo_raw, motivo_raw) if motivo_raw else "02"
+                if not es_masivo:
+                    print(f"  - tipo_de_nota_de_debito: {tipo_de_nota_de_debito}")
+        # ---------------------------------------------------------------
+
         # Construir request
         request = NubeFactRequest(
             tipo_de_comprobante=tipo_comprobante,
@@ -576,7 +631,7 @@ class DocumentService:
             cliente_numero_de_documento=ruc_limpio,
             cliente_denominacion=documento.VendorName or "",
             cliente_direccion=documento.VendorAddress or "",
-            fecha_de_emision=fecha_emision_peru,  # Usar fecha de HOY
+            fecha_de_emision=fecha_envio_nube,  # Usar DocumentDate
             fecha_de_vencimiento=self._fecha_excel_to_date(documento.DueDate),
             moneda="1" if is_soles else "2",
             tipo_de_cambio=documento.ExchangeRate,
@@ -584,6 +639,12 @@ class DocumentService:
             total_igv=header_igv,
             total=header_total,
             condiciones_de_pago=documento.CondicionPago,
+            # Campos requeridos para NC/ND
+            tipo_de_nota_de_credito=tipo_de_nota_de_credito,
+            tipo_de_nota_de_debito=tipo_de_nota_de_debito,
+            documento_que_se_modifica_tipo=doc_modifica_tipo,
+            documento_que_se_modifica_serie=doc_modifica_serie,
+            documento_que_se_modifica_numero=doc_modifica_numero,
             items=items,
         )
         
@@ -597,7 +658,13 @@ class DocumentService:
             print(f"  - total_igv: {request.total_igv}")
             print(f"  - total: {request.total}")
             print(f"  - items: {len(request.items)}")
-        
+            if tipo_comprobante in (3, 4):
+                print(f"  - tipo_de_nota_de_credito: {request.tipo_de_nota_de_credito}")
+                print(f"  - tipo_de_nota_de_debito: {request.tipo_de_nota_de_debito}")
+                print(f"  - doc_modifica_tipo: {request.documento_que_se_modifica_tipo}")
+                print(f"  - doc_modifica_serie: {request.documento_que_se_modifica_serie}")
+                print(f"  - doc_modifica_numero: {request.documento_que_se_modifica_numero}")
+
         # Enviar a NubeFact
         if not es_masivo:
             print(f"\nEnviando a NubeFact...")
