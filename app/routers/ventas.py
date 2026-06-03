@@ -810,12 +810,16 @@ async def descargar_pdf(
     if not nube_response:
         raise HTTPException(status_code=404, detail="Documento no enviado a NubeFact")
 
-    # Si hay URL de NubeFact, descargar el PDF y devolverlo
-    if nube_response.enlace_del_pdf:
+    # Si hay URL de NubeFact o enlace general, descargar el PDF y devolverlo
+    enlace_pdf = nube_response.enlace_del_pdf
+    if not enlace_pdf and nube_response.enlace:
+        enlace_pdf = nube_response.enlace + ".pdf"
+
+    if enlace_pdf:
         import httpx
         try:
             async with httpx.AsyncClient() as client:
-                resp = await client.get(nube_response.enlace_del_pdf, timeout=15.0)
+                resp = await client.get(enlace_pdf, timeout=15.0)
                 if resp.status_code == 200:
                     filename = f"{documento.DocumentSerie}-{documento.DocumentNo}.pdf"
                     return Response(
@@ -863,10 +867,14 @@ async def descargar_xml(
     if not nube_response:
         raise HTTPException(status_code=404, detail="Documento no enviado a NubeFact")
 
-    # Si hay URL de NubeFact, redirigir
-    if nube_response.enlace_del_xml:
+    # Si hay URL de NubeFact o enlace general, redirigir
+    enlace_xml = nube_response.enlace_del_xml
+    if not enlace_xml and nube_response.enlace:
+        enlace_xml = nube_response.enlace + ".xml"
+
+    if enlace_xml:
         from fastapi.responses import RedirectResponse
-        return RedirectResponse(url=nube_response.enlace_del_xml)
+        return RedirectResponse(url=enlace_xml)
 
     # Si hay base64, decodificar
     if nube_response.xml_zip_base64:
@@ -903,10 +911,14 @@ async def descargar_cdr(
     if not nube_response:
         raise HTTPException(status_code=404, detail="Documento no enviado a NubeFact")
 
-    # Si hay URL de NubeFact, redirigir
-    if nube_response.enlace_del_cdr:
+    # Si hay URL de NubeFact o enlace general, redirigir
+    enlace_cdr = nube_response.enlace_del_cdr
+    if not enlace_cdr and nube_response.enlace:
+        enlace_cdr = nube_response.enlace + ".cdr"
+
+    if enlace_cdr:
         from fastapi.responses import RedirectResponse
-        return RedirectResponse(url=nube_response.enlace_del_cdr)
+        return RedirectResponse(url=enlace_cdr)
 
     # Si hay base64, decodificar
     if nube_response.cdr_zip_base64:
