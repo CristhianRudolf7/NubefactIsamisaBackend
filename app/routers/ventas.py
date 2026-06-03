@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from typing import Optional, List, Annotated
 import base64
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from ..database import get_db, SessionLocal
 from ..models.ventas import ARDocument, ARDocumentDetail
@@ -425,17 +425,17 @@ async def enviar_masivo_ventas(
     print(f"[BULK ENVIAR VENTAS] Iniciando consulta con filtros: inicio={request.fecha_inicio}, fin={request.fecha_fin}, serie={request.serie}")
 
     query = db.query(ARDocument.Document).filter(
-        or_(ARDocument.nube_status_web == None, ARDocument.nube_status_web == '', ARDocument.nube_status_web == 'pendiente'),
-        or_(ARDocument.Status != 'N', ARDocument.Status == None),
-        ARDocument.necesita_aprobacion == False,
-        ~ARDocument.DocumentSerie.like('T%'),
-        ~ARDocument.Document.like('T%')
+        ARDocument.nube_status_web == 'pendiente',
+        ARDocument.Status != 'N',
+        ~ARDocument.DocumentSerie.like('T%')
     )
 
     if request.fecha_inicio:
         query = query.filter(ARDocument.DocumentDate >= parse_date_filter(request.fecha_inicio, is_end_date=False))
     if request.fecha_fin:
-        query = query.filter(ARDocument.DocumentDate <= parse_date_filter(request.fecha_fin, is_end_date=True))
+        fecha_fin_dt = parse_date_filter(request.fecha_fin, is_end_date=False)
+        fecha_fin_next_day = fecha_fin_dt + timedelta(days=1)
+        query = query.filter(ARDocument.DocumentDate < fecha_fin_next_day)
     if request.serie:
         query = query.filter(ARDocument.DocumentSerie == request.serie)
 

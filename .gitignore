@@ -43,3 +43,5 @@ sql/log/
 .pytest_cache/
 .coverage
 htmlcov/
+
+doc/php/

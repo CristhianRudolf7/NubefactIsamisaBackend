@@ -2,6 +2,7 @@ from sqlalchemy.orm import Session
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timedelta
 import math
+import httpx
 
 from ..models.guias import WHTransaction, WHTransactionDetail
 from ..models.retenciones import APRetencion, APRetencionDetail, APRetencionStatus
@@ -225,16 +226,7 @@ class DocumentService:
             
         # Notificar por WhatsApp
         notification_service = NotificationService(self.db)
-        if response.success or is_already_sent:
-            if response.aceptada_por_sunat or is_already_sent:
-                await notification_service.notificar_envio_exitoso(
-                    tipo_modulo="guias",
-                    tipo_documento="guia",
-                    serie=guia.DocumentSerie,
-                    numero=guia.DocumentNo,
-                    mensaje_sunat=response.sunat_description or "La guía ya fue enviada anteriormente"
-                )
-        else:
+        if not response.success and not is_already_sent:
             error_msg = ", ".join(response.errors) if response.errors else response.message
             await notification_service.notificar_error_documento(
                 tipo_modulo="guias",
@@ -415,16 +407,7 @@ class DocumentService:
         
         # Notificar por WhatsApp
         notification_service = NotificationService(self.db)
-        if response.success or is_already_sent:
-            if response.aceptada_por_sunat or is_already_sent:
-                await notification_service.notificar_envio_exitoso(
-                    tipo_modulo="retenciones",
-                    tipo_documento="retencion",
-                    serie=retencion.Serie,
-                    numero=retencion.Numero,
-                    mensaje_sunat=response.sunat_description or "La retención ya fue enviada anteriormente"
-                )
-        else:
+        if not response.success and not is_already_sent:
             error_msg = ", ".join(response.errors) if response.errors else response.message
             await notification_service.notificar_error_documento(
                 tipo_modulo="retenciones",
@@ -449,11 +432,11 @@ class DocumentService:
     # ==================== DOCUMENTOS DE VENTA ====================
     
     async def enviar_documento_venta(self, document_id: str, usuario: str, es_masivo: bool = False) -> Dict[str, Any]:
-        """Envía documento de venta a NubeFact"""
+        """Envía documento de venta llamando a las APIs PHP locales y verificando en la BD"""
         peru_now = now_peru()
         if not es_masivo:
             print(f"\n{'='*60}")
-            print(f"ENVIO A NUBEFACT - Documento: {document_id}")
+            print(f"ENVIO DOCUMENTO VENTA - ID: {document_id}")
             print(f"Fecha Perú: {peru_now.strftime('%d-%m-%Y %H:%M:%S')}")
             print(f"{'='*60}")
         
@@ -472,18 +455,8 @@ class DocumentService:
                 print(f"ERROR: Documento {document_id} está anulado en el sistema (Status = N)")
             return {"success": False, "message": "El documento está anulado en el sistema y no puede ser enviado"}
         
-        if not es_masivo:
-            print(f"Documento encontrado:")
-            print(f"  - Serie: {documento.DocumentSerie}")
-            print(f"  - Numero: {documento.DocumentNo}")
-            print(f"  - Tipo: {documento.DocumentType}")
-            print(f"  - Cliente: {documento.VendorName}")
-            print(f"  - RUC: {documento.VendorRUC}")
-            print(f"  - Total: {documento.AmountTotalLo}")
-            print(f"  - Estado fe: {documento.fe}")
-        
-        # Validar si ya fue aceptado en el dashboard web
-        if documento.nube_status_web == "aceptado":
+        # Validar si ya fue aceptado en el dashboard web o enviado
+        if documento.nube_status_web == "aceptado" or (documento.fe == "enviado" and not es_masivo):
             if not es_masivo:
                 print(f"ERROR: Documento ya fue enviado")
             return {"success": False, "message": "El documento ya fue enviado"}
@@ -491,279 +464,123 @@ class DocumentService:
         if documento.necesita_aprobacion:
             return {"success": False, "message": "El documento requiere aprobación del administrador antes de ser enviado"}
         
-        # Determinar si el documento está en Soles (LO) o Extranjera (EX)
-        is_soles = (documento.DocumentCurrency == "LO")
-        
-        # Construir items
-        items = []
-        if not es_masivo:
-            print(f"\nDetalles del documento:")
-        for det in documento.detalles:
-            if not es_masivo:
-                print(f"  Linea {det.Line}: {det.ItemCode} - {det.Description}")
-                print(f"    Cantidad: {det.Quantity}, Precio: {det.Price}, Total: {det.Total}")
+        # Determinar URL basada en typeDocSun
+        type_doc_sun = (documento.typeDocSun or "").strip().upper()
+        if type_doc_sun == 'T':
+            url = f"http://192.168.1.3/sistemas/fe/envio3.php?Doc={documento.Document}&doc={documento.Document}"
+        else:
+            # Por defecto, si es F o cualquier otro valor, se usa envf.php
+            url = f"http://192.168.1.3/sistemas/fe/envf.php?Doc={documento.Document}&doc={documento.Document}"
             
-            # En la BD: 
-            # - det.Total es el subtotal (neto sin IGV) y ya tiene el descuento aplicado
-            item_subtotal = det.Total or 0
-            cantidad = det.Quantity or 0
+        if not es_masivo:
+            print(f"Llamando a API local: {url}")
             
-            # Calcular valor y precio unitario real considerando descuentos
-            if cantidad > 0:
-                valor_unitario = round(item_subtotal / cantidad, 6)
-                # Calculamos el precio unitario aplicando el IGV (18%) al valor unitario descontado
-                precio_unitario = round(valor_unitario * 1.18, 6)
-                # Recalculamos el total de la línea consistente con el precio unitario
-                item_total = round(precio_unitario * cantidad, 2)
-            else:
-                valor_unitario = det.Price or 0
-                precio_unitario = round(valor_unitario * 1.18, 6)
-                item_total = 0.0
-                
-            item_igv = round(max(0.0, item_total - item_subtotal), 2)
-            
-            items.append(NubeFactItem(
-                unidad_de_medida=self._map_unidad(det.Unit),
-                codigo=det.ItemCode or "",
-                descripcion=det.Description or "",
-                cantidad=cantidad,
-                valor_unitario=valor_unitario,
-                precio_unitario=precio_unitario,
-                subtotal=item_subtotal,
-                tipo_de_igv="1",
-                igv=item_igv,
-                total=item_total,
-                codigo_producto_sunat=None,
-            ))
-        
-        # Mapear tipo de documento - Normalizar quitando espacios
-        doc_type_clean = (documento.DocumentType or "").replace(" ", "").upper()
-        tipo_doc_map = {
-            "LIMADSASFACTURA": 1,
-            "LIMADSASBOLETA": 2,
-            "LIMADSASCREDITO": 3,  # Nota de crédito
-            "LIMADSASDEBITO": 4,   # Nota de débito
-        }
-        tipo_comprobante = tipo_doc_map.get(doc_type_clean, 1)
-        if not es_masivo:
-            print(f"\nTipo comprobante original: {documento.DocumentType} -> Limpio: {doc_type_clean} -> Mapeado: {tipo_comprobante}")
-            print(f"\nTipo comprobante mapeado: {tipo_comprobante}")
-        
-        # Mapear tipo de cliente
-        ruc_limpio = (documento.VendorRUC or "").strip()
-        tipo_cliente = "6" if len(ruc_limpio) == 11 else "1"
-        if not es_masivo:
-            print(f"Tipo cliente: {tipo_cliente} (RUC: '{ruc_limpio}', len: {len(ruc_limpio)})")
-        
-        # Usar la fecha del documento (DocumentDate) para NubeFact
-        fecha_doc = self._fecha_excel_to_date(documento.DocumentDate)
-        fecha_emision_peru = peru_now.strftime("%d-%m-%Y")
-        fecha_envio_nube = fecha_doc if fecha_doc else fecha_emision_peru
-        if not es_masivo:
-            print(f"Fecha documento DB: {fecha_doc}")
-            print(f"Fecha a enviar (usando DocumentDate): {fecha_envio_nube}")
-        
-        # Totales de cabecera según la moneda
-        header_total = documento.AmountTotalLo if is_soles else (documento.AmountTotalEx or 0)
-        header_gravada = documento.AmountNetLo if is_soles else (documento.AmountNetEx or 0)
-        header_igv = round(max(0.0, header_total - header_gravada), 2)
-
-        # ---- Campos para Nota de Crédito (3) o Nota de Débito (4) ----
-        tipo_de_nota_de_credito = None
-        tipo_de_nota_de_debito = None
-        doc_modifica_tipo = None
-        doc_modifica_serie = None
-        doc_modifica_numero = None
-
-        if tipo_comprobante in (3, 4):
-            # Mapear tipo del documento que se modifica (factura=1, boleta=2)
-            ref_type_clean = (documento.RefDocType or "").replace(" ", "").upper()
-            ref_tipo_map = {
-                "LIMADSASFACTURA": "1",
-                "LIMADSASBOLETA": "2",
-            }
-            doc_modifica_tipo = ref_tipo_map.get(ref_type_clean)
-            doc_modifica_serie = documento.RefDocSerie or None
-            doc_modifica_numero = documento.RefDocNo or None
-
-            if not es_masivo:
-                print(f"  - RefDocType: {documento.RefDocType} -> Mapeado: {doc_modifica_tipo}")
-                print(f"  - RefDocSerie: {doc_modifica_serie}")
-                print(f"  - RefDocNo: {doc_modifica_numero}")
-                print(f"  - MotivoNC: {documento.MotivoNC}")
-
-            if tipo_comprobante == 3:
-                # Mapear MotivoNC al código de tipo de nota de crédito de NubeFact
-                motivo_nc_map = {
-                    "01": "01",  # Anulación de la operación
-                    "02": "02",  # Anulación por error en el RUC
-                    "03": "03",  # Corrección por error en la descripción
-                    "04": "04",  # Descuento global
-                    "05": "05",  # Descuento por ítem
-                    "06": "06",  # Devolución parcial de bienes o servicios
-                    "07": "07",  # Bonificación
-                    "08": "08",  # Valor de venta del ítem (devolución total)
-                    "13": "13",  # Ajustes - montos y/o fechas de pago
-                }
-                motivo_raw = str(documento.MotivoNC or "").strip()
-                tipo_de_nota_de_credito = motivo_nc_map.get(motivo_raw, motivo_raw) if motivo_raw else "01"
-                if not es_masivo:
-                    print(f"  - tipo_de_nota_de_credito: {tipo_de_nota_de_credito}")
-            else:
-                # Nota de Débito
-                motivo_nd_map = {
-                    "01": "01",  # Intereses por mora
-                    "02": "02",  # Aumento en el valor
-                    "03": "03",  # Penalidades/otros conceptos
-                }
-                motivo_raw = str(documento.MotivoNC or "").strip()
-                tipo_de_nota_de_debito = motivo_nd_map.get(motivo_raw, motivo_raw) if motivo_raw else "02"
-                if not es_masivo:
-                    print(f"  - tipo_de_nota_de_debito: {tipo_de_nota_de_debito}")
-        # ---------------------------------------------------------------
-
-        # Construir request
-        request = NubeFactRequest(
-            tipo_de_comprobante=tipo_comprobante,
-            serie=documento.DocumentSerie,
-            numero=documento.DocumentNo,
-            cliente_tipo_de_documento=tipo_cliente,
-            cliente_numero_de_documento=ruc_limpio,
-            cliente_denominacion=documento.VendorName or "",
-            cliente_direccion=documento.VendorAddress or "",
-            fecha_de_emision=fecha_envio_nube,  # Usar DocumentDate
-            fecha_de_vencimiento=self._fecha_excel_to_date(documento.DueDate),
-            moneda="1" if is_soles else "2",
-            tipo_de_cambio=documento.ExchangeRate,
-            total_gravada=header_gravada,
-            total_igv=header_igv,
-            total=header_total,
-            condiciones_de_pago=documento.CondicionPago,
-            # Campos requeridos para NC/ND
-            tipo_de_nota_de_credito=tipo_de_nota_de_credito,
-            tipo_de_nota_de_debito=tipo_de_nota_de_debito,
-            documento_que_se_modifica_tipo=doc_modifica_tipo,
-            documento_que_se_modifica_serie=doc_modifica_serie,
-            documento_que_se_modifica_numero=doc_modifica_numero,
-            items=items,
-        )
-        
-        if not es_masivo:
-            print(f"\nRequest a NubeFact:")
-            print(f"  - serie: {request.serie}")
-            print(f"  - numero: {request.numero}")
-            print(f"  - fecha_emision: {request.fecha_de_emision}")
-            print(f"  - cliente: {request.cliente_denominacion}")
-            print(f"  - total_gravada: {request.total_gravada}")
-            print(f"  - total_igv: {request.total_igv}")
-            print(f"  - total: {request.total}")
-            print(f"  - items: {len(request.items)}")
-            if tipo_comprobante in (3, 4):
-                print(f"  - tipo_de_nota_de_credito: {request.tipo_de_nota_de_credito}")
-                print(f"  - tipo_de_nota_de_debito: {request.tipo_de_nota_de_debito}")
-                print(f"  - doc_modifica_tipo: {request.documento_que_se_modifica_tipo}")
-                print(f"  - doc_modifica_serie: {request.documento_que_se_modifica_serie}")
-                print(f"  - doc_modifica_numero: {request.documento_que_se_modifica_numero}")
-
-        # Enviar a NubeFact
-        if not es_masivo:
-            print(f"\nEnviando a NubeFact...")
+        # Llamar a la API PHP local
         try:
-            response = await nubefact_client.generar_comprobante(request)
-            if not es_masivo:
-                print(f"Respuesta recibida:")
-                print(f"  - success: {response.success}")
-                print(f"  - message: {response.message}")
-                if response.errors:
-                    print(f"  - errors: {response.errors}")
-                if response.aceptada_por_sunat:
-                    print(f"  - aceptada_por_sunat: {response.aceptada_por_sunat}")
-                if response.sunat_description:
-                    print(f"  - sunat_description: {response.sunat_description}")
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.get(url)
+                if not es_masivo:
+                    print(f"Respuesta de la API local: {response.status_code}")
         except Exception as e:
             if not es_masivo:
-                print(f"EXCEPCION al enviar: {type(e).__name__}: {e}")
-            return {"success": False, "message": f"Error al enviar: {str(e)}"}
-        
-        # Actualizar estado
-        is_already_sent = False
-        if not response.success and response.errors:
-            for err in response.errors:
-                err_lower = err.lower()
-                if "ya fue enviado" in err_lower or "ya existe" in err_lower or "enviado anteriormente" in err_lower:
-                    is_already_sent = True
-                    break
-        
-        if response.success or is_already_sent:
-            # Si NubeFact procesó con éxito (o ya fue enviado antes), se considera aceptado
-            documento.fe = "aceptada"
+                print(f"Error o Timeout llamando a la API local (se procederá a verificar la BD): {e}")
+
+        # Esperar y verificar en la base de datos
+        fe_status = "pendiente"
+        # Haremos hasta 4 intentos de verificación (cada 1 segundo)
+        for attempt in range(4):
+            if attempt > 0:
+                await asyncio.sleep(1.0)
+            
+            # Recargar el documento para obtener el valor actualizado por el PHP
+            self.db.expire(documento)
+            self.db.refresh(documento)
+            
+            fe_status = (documento.fe or "").strip().lower()
+            if not es_masivo:
+                print(f"Intento {attempt + 1}: Estado fe en BD = {documento.fe}")
+                
+            if fe_status in ('enviado', 'aceptada', 'error'):
+                break
+
+        success = False
+        mensaje = ""
+        nube_data = {}
+
+        if fe_status in ('enviado', 'aceptada'):
+            success = True
+            documento.fe = "enviado"  # Asegurar que esté marcado como enviado
             documento.nube_status_web = "aceptado"
+            self.db.commit()
+            
+            # Buscar la respuesta insertada por la API local en ar_fe_nube
+            nube_record = self.db.query(ARFENube).filter(
+                ARFENube.serie == documento.DocumentSerie,
+                ARFENube.numero == documento.DocumentNo
+            ).order_by(ARFENube.id.desc()).first()
+            
+            if nube_record:
+                nube_data = {
+                    "enlace": nube_record.enlace,
+                    "aceptada_por_sunat": nube_record.aceptada_por_sunat,
+                    "sunat_description": nube_record.sunat_description,
+                    "sunat_note": nube_record.sunat_note,
+                    "sunat_responsecode": nube_record.sunat_responsecode,
+                    "sunat_soap_error": nube_record.sunat_soap_error,
+                    "pdf_zip_base64": nube_record.pdf_zip_base64,
+                    "xml_zip_base64": nube_record.xml_zip_base64,
+                    "cdr_zip_base64": nube_record.cdr_zip_base64,
+                    "codigo_hash": nube_record.codigo_hash,
+                }
+                mensaje = nube_record.sunat_description or "El documento fue enviado y aceptado correctamente."
+            else:
+                mensaje = "Documento enviado correctamente."
+            pass
+
         else:
+            # error o se quedó pendiente
+            success = False
             documento.fe = "error"
             documento.nube_status_web = "error"
-        
-        # Guardar respuesta (tanto exitosa como con errores)
-        error_str = ", ".join(response.errors) if (response.errors and not is_already_sent) else None
-        nube_record = ARFENube(
-            serie=documento.DocumentSerie,
-            numero=documento.DocumentNo,
-            enlace=response.enlace,
-            enlace_del_pdf=response.enlace_del_pdf,
-            enlace_del_xml=response.enlace_del_xml,
-            enlace_del_cdr=response.enlace_del_cdr,
-            aceptada_por_sunat="true" if (response.aceptada_por_sunat or is_already_sent) else "false",
-            sunat_description=response.sunat_description or ("El documento ya fue enviado anteriormente" if is_already_sent else None),
-            sunat_note=response.sunat_note,
-            sunat_responsecode=response.sunat_responsecode,
-            sunat_soap_error=response.sunat_soap_error,
-            pdf_zip_base64=response.pdf_zip_base64,
-            xml_zip_base64=response.xml_zip_base64,
-            cdr_zip_base64=response.cdr_zip_base64,
-            codigo_hash_qr=response.cadena_para_codigo_qr,
-            codigo_hash=response.codigo_hash,
-            error=error_str,
-            fecha_envio=now_peru().timestamp(),
-            usuario_envio=usuario,
-        )
-        self.db.add(nube_record)
-        
-        self.db.commit()
-        if not es_masivo:
-            print(f"{'='*60}\n")
-        
-        # Notificar por WhatsApp
-        notification_service = NotificationService(self.db)
-        if response.success or is_already_sent:
-            if response.aceptada_por_sunat or is_already_sent:
-                await notification_service.notificar_envio_exitoso(
+            
+            nube_record = self.db.query(ARFENube).filter(
+                ARFENube.serie == documento.DocumentSerie,
+                ARFENube.numero == documento.DocumentNo
+            ).order_by(ARFENube.id.desc()).first()
+            
+            if nube_record and nube_record.error:
+                error_msg = nube_record.error
+            elif fe_status == "error":
+                error_msg = "Error reportado por el script de envío en la base de datos."
+            else:
+                error_msg = "Tiempo de espera agotado sin actualización del estado de envío."
+                
+            documento.RejectionReason = error_msg
+            self.db.commit()
+            mensaje = error_msg
+
+            # Notificar por WhatsApp de error
+            try:
+                notification_service = NotificationService(self.db)
+                await notification_service.notificar_error_documento(
                     tipo_modulo="ventas",
                     tipo_documento=documento.DocumentType,
                     serie=documento.DocumentSerie,
                     numero=documento.DocumentNo,
-                    mensaje_sunat=response.sunat_description or "El documento ya fue enviado anteriormente"
+                    error=error_msg,
+                    documento_id=documento.Document
                 )
-        else:
-            error_msg = ", ".join(response.errors) if response.errors else response.message
-            await notification_service.notificar_error_documento(
-                tipo_modulo="ventas",
-                tipo_documento=documento.DocumentType,
-                serie=documento.DocumentSerie,
-                numero=documento.DocumentNo,
-                error=error_msg,
-                documento_id=documento.Document
-            )
-        
-        # Construir mensaje con errores si existen
-        mensaje = response.message
-        if response.errors and not is_already_sent:
-            mensaje = response.message + ": " + ", ".join(response.errors)
-        elif is_already_sent:
-            mensaje = "El documento ya fue enviado anteriormente y se marcó como aceptado"
-            
+            except Exception as ne:
+                if not es_masivo:
+                    print(f"Error al enviar notificación de error por WhatsApp: {ne}")
+
+        if not es_masivo:
+            print(f"{'='*60}\n")
+
         return {
-            "success": response.success or is_already_sent,
+            "success": success,
             "message": mensaje,
-            "data": response.model_dump(exclude_none=True)
+            "data": nube_data
         }
     
     def _map_unidad(self, unidad: str) -> str:
