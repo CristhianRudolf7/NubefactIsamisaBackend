@@ -214,8 +214,7 @@ async def obtener_documento(
     """Obtiene detalle de un documento de venta"""
     documento = db.query(ARDocument).filter(
         ARDocument.Document == document_id,
-        ~ARDocument.DocumentSerie.like('T%'),
-        ~ARDocument.Document.like('T%')
+        ~ARDocument.DocumentSerie.like('T%')
     ).first()
     
     if not documento:
@@ -306,8 +305,7 @@ async def enviar_documento(
     # Obtener documento antes de enviar
     documento = db.query(ARDocument).filter(
         ARDocument.Document == document_id,
-        ~ARDocument.DocumentSerie.like('T%'),
-        ~ARDocument.Document.like('T%')
+        ~ARDocument.DocumentSerie.like('T%')
     ).first()
     if not documento:
         raise HTTPException(status_code=404, detail="Documento no encontrado")
@@ -474,8 +472,7 @@ async def actualizar_documento(
     """Actualiza un documento de venta (solo si está rechazado/observado)"""
     documento = db.query(ARDocument).filter(
         ARDocument.Document == document_id,
-        ~ARDocument.DocumentSerie.like('T%'),
-        ~ARDocument.Document.like('T%')
+        ~ARDocument.DocumentSerie.like('T%')
     ).first()
     
     if not documento:
@@ -631,8 +628,7 @@ async def aprobar_documento(
     """Aprueba una edición realizada por un trabajador"""
     documento = db.query(ARDocument).filter(
         ARDocument.Document == document_id,
-        ~ARDocument.DocumentSerie.like('T%'),
-        ~ARDocument.Document.like('T%')
+        ~ARDocument.DocumentSerie.like('T%')
     ).first()
     if not documento:
         raise HTTPException(status_code=404, detail="Documento no encontrado")
@@ -653,8 +649,7 @@ async def rechazar_documento(
     """Rechaza los cambios y restaura la versión anterior"""
     documento = db.query(ARDocument).filter(
         ARDocument.Document == document_id,
-        ~ARDocument.DocumentSerie.like('T%'),
-        ~ARDocument.Document.like('T%')
+        ~ARDocument.DocumentSerie.like('T%')
     ).first()
     if not documento:
         raise HTTPException(status_code=404, detail="Documento no encontrado")
@@ -713,8 +708,7 @@ async def anular_documento(
     """Genera documento de anulación"""
     documento = db.query(ARDocument).filter(
         ARDocument.Document == document_id,
-        ~ARDocument.DocumentSerie.like('T%'),
-        ~ARDocument.Document.like('T%')
+        ~ARDocument.DocumentSerie.like('T%')
     ).first()
 
     if not documento:
@@ -803,8 +797,7 @@ async def descargar_pdf(
     """Descarga el PDF del documento"""
     documento = db.query(ARDocument).filter(
         ARDocument.Document == document_id,
-        ~ARDocument.DocumentSerie.like('T%'),
-        ~ARDocument.Document.like('T%')
+        ~ARDocument.DocumentSerie.like('T%')
     ).first()
     if not documento:
         raise HTTPException(status_code=404, detail="Documento no encontrado")
@@ -857,8 +850,7 @@ async def descargar_xml(
     """Descarga el XML firmado del documento"""
     documento = db.query(ARDocument).filter(
         ARDocument.Document == document_id,
-        ~ARDocument.DocumentSerie.like('T%'),
-        ~ARDocument.Document.like('T%')
+        ~ARDocument.DocumentSerie.like('T%')
     ).first()
     if not documento:
         raise HTTPException(status_code=404, detail="Documento no encontrado")
@@ -898,8 +890,7 @@ async def descargar_cdr(
     """Descarga el CDR (Constancia de Recepción) del documento"""
     documento = db.query(ARDocument).filter(
         ARDocument.Document == document_id,
-        ~ARDocument.DocumentSerie.like('T%'),
-        ~ARDocument.Document.like('T%')
+        ~ARDocument.DocumentSerie.like('T%')
     ).first()
     if not documento:
         raise HTTPException(status_code=404, detail="Documento no encontrado")
