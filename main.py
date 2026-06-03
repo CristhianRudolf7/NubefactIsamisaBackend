@@ -53,12 +53,20 @@ app = FastAPI(
 # Configurar CORS
 # IMPORTANTE: Cuando allow_credentials=True, NO se puede usar allow_origins=["*"]
 # El navegador rechaza enviar cookies con orígenes wildcard
+cors_params = {
+    "allow_credentials": True,
+    "allow_methods": ["*"],
+    "allow_headers": ["*"],
+}
+
+if settings.debug:
+    cors_params["allow_origin_regex"] = r"https?://(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[0-1])\.\d+\.\d+)(:\d+)?"
+else:
+    cors_params["allow_origins"] = settings.allowed_origins.split(",")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.allowed_origins.split(","),
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    **cors_params
 )
 
 # Incluir routers
