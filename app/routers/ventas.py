@@ -57,8 +57,7 @@ async def listar_documentos(
     page_size: int = Query(20, ge=1, le=10000)
 ):
     query = db.query(ARDocument).filter(
-        ~ARDocument.DocumentSerie.like('T%'),
-        ~ARDocument.Document.like('T%')
+        ~ARDocument.DocumentSerie.like('T%')
     )
     
     if fecha_inicio:
@@ -74,7 +73,7 @@ async def listar_documentos(
         estado_lower = estado.lower()
         query = query.filter(ARDocument.nube_status_web == estado)
         if estado_lower == 'pendiente':
-            query = query.filter(or_(ARDocument.Status != 'N', ARDocument.Status == None))
+            query = query.filter(ARDocument.Status != 'N')
     if ruc_cliente:
         query = query.filter(ARDocument.VendorRUC == ruc_cliente)
     if tipo_documento:
