@@ -98,6 +98,7 @@ async def listar_guias(
                     "TargetAddress": g.TargetAddress,
                     "MotivoTraslado": g.MotivoTraslado,
                     "envio_nube": g.nube_status_web,
+                    "nube_status_web": g.nube_status_web,
                     "Status": g.Status,
                     "error_mensaje": g.RejectionReason or g.Comments or "No hay detalles del error disponibles" if g.nube_status_web and g.nube_status_web.lower() in ['error', 'rechazado'] else None,
                     "necesita_aprobacion": g.necesita_aprobacion,

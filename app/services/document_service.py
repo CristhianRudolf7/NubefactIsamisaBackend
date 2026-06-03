@@ -259,6 +259,29 @@ class DocumentService:
                 nube_record.pdf_zip_base64 = response.pdf_zip_base64
                 nube_record.xml_zip_base64 = response.xml_zip_base64
                 nube_record.cdr_zip_base64 = response.cdr_zip_base64
+            else:
+                nube_record = WHTransactionNube(
+                    TransactionId=transaction_id,
+                    serie=guia.DocumentSerie,
+                    numero=guia.DocumentNo,
+                    enlace=response.enlace,
+                    enlace_del_pdf=response.enlace_del_pdf,
+                    enlace_del_xml=response.enlace_del_xml,
+                    enlace_del_cdr=response.enlace_del_cdr,
+                    aceptada_por_sunat="true",
+                    sunat_description=response.sunat_description,
+                    sunat_note=response.sunat_note,
+                    sunat_responsecode=response.sunat_responsecode,
+                    sunat_soap_error=response.sunat_soap_error,
+                    pdf_zip_base64=response.pdf_zip_base64,
+                    xml_zip_base64=response.xml_zip_base64,
+                    cdr_zip_base64=response.cdr_zip_base64,
+                    codigo_hash_qr=response.cadena_para_codigo_qr,
+                    codigo_hash=response.codigo_hash,
+                    fecha_envio=now_peru().timestamp(),
+                    usuario_envio="sistema",
+                )
+                self.db.add(nube_record)
             
             self.db.commit()
             
