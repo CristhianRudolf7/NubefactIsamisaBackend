@@ -468,7 +468,7 @@ class DocumentService:
         # Determinar URL basada en typeDocSun
         type_doc_sun = (documento.typeDocSun or "").strip().upper()
         if type_doc_sun == 'T':
-            url = f"http://192.168.1.3/sistemas/fe/envio3.php?Doc={documento.Document}&doc={documento.Document}"
+            url = f"http://192.168.1.3/sistemas/fe/enviov3.php?Doc={documento.Document}&doc={documento.Document}"
         else:
             # Por defecto, si es F o cualquier otro valor, se usa envf.php
             url = f"http://192.168.1.3/sistemas/fe/envf.php?Doc={documento.Document}&doc={documento.Document}"
@@ -487,7 +487,8 @@ class DocumentService:
             async with httpx.AsyncClient(timeout=10.0) as client:
                 response = await client.get(url)
                 if not es_masivo:
-                    print(f"Respuesta de la API local: {response.status_code}")
+                    print(f"Respuesta de la API local - Status: {response.status_code}")
+                    print(f"Cuerpo de respuesta de la API local (primeros 500 caracteres): {response.text[:500]}")
         except Exception as e:
             if not es_masivo:
                 print(f"Error o Timeout llamando a la API local (se procederá a verificar la BD): {e}")
@@ -549,12 +550,19 @@ class DocumentService:
                 ARFENube.numero == documento.DocumentNo
             ).order_by(ARFENube.id.desc()).first()
             
+            if not es_masivo:
+                print(f"DEBUG: No se detectó éxito. Estado fe en BD: {fe_status}")
+                if nube_record:
+                    print(f"DEBUG: Registro encontrado en ar_fe_nube: id={nube_record.id}, error={nube_record.error}")
+                else:
+                    print(f"DEBUG: No se encontró ningún registro en ar_fe_nube para serie={documento.DocumentSerie}, numero={documento.DocumentNo}")
+            
             if nube_record and nube_record.error:
                 error_msg = nube_record.error
             elif fe_status == "error":
                 error_msg = "Error reportado por el script de envío en la base de datos."
             else:
-                error_msg = "Tiempo de espera agotado sin actualización del estado de envío."
+                error_msg = f"Tiempo de espera agotado sin actualización del estado de envío (estado fe: {fe_status})."
                 
             documento.RejectionReason = error_msg
             self.db.commit()
