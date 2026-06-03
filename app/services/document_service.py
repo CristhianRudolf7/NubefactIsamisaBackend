@@ -475,6 +475,9 @@ class DocumentService:
         if not es_masivo:
             print(f"Llamando a API local: {url}")
             
+        # Liberar bloqueos de SQL Server antes de invocar la API externa para evitar interbloqueos (deadlocks)
+        self.db.commit()
+            
         # Llamar a la API PHP local
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
@@ -492,9 +495,13 @@ class DocumentService:
             if attempt > 0:
                 await asyncio.sleep(1.0)
             
-            # Recargar el documento para obtener el valor actualizado por el PHP
-            self.db.expire(documento)
-            self.db.refresh(documento)
+            # Cerrar la transacción de lectura actual para iniciar una nueva limpia y poder ver los cambios del PHP
+            self.db.rollback()
+            
+            # Volver a obtener el documento
+            documento = self.db.query(ARDocument).filter(ARDocument.Document == document_id).first()
+            if not documento:
+                break
             
             fe_status = (documento.fe or "").strip().lower()
             if not es_masivo:
